@@ -44,6 +44,22 @@ class CourseDetailPage extends StatelessWidget {
       }
     }
 
+    final schedule = app.schedules
+            .where((s) => s.id == c.scheduleId)
+            .firstOrNull ??
+        app.activeSchedule;
+
+    void openEdit() {
+      final s = schedule;
+      if (s == null) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => CourseFormPage(schedule: s, course: c),
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: Text(c.name),
@@ -51,20 +67,7 @@ class CourseDetailPage extends StatelessWidget {
           IconButton(
             tooltip: '编辑',
             icon: const Icon(Icons.edit_outlined),
-            onPressed: () {
-              final schedule = app.schedules
-                  .where((s) => s.id == c.scheduleId)
-                  .firstOrNull;
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => CourseFormPage(
-                    schedule: schedule ?? app.activeSchedule!,
-                    course: c,
-                  ),
-                ),
-              );
-            },
+            onPressed: openEdit,
           ),
           IconButton(
             tooltip: '删除',
@@ -152,6 +155,7 @@ class CourseDetailPage extends StatelessWidget {
                 '座位号：${c.exam!.seat}',
             ]),
           ],
+          const SizedBox(height: 8),
           if (c.note != null && c.note!.isNotEmpty) ...[
             const SizedBox(height: 8),
             _infoCard(theme, '备注', [c.note!]),

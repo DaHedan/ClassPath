@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/course.dart';
 import '../models/schedule.dart';
+import '../services/holiday_service.dart';
 import '../services/schedule_math.dart';
 import 'course_block.dart';
 
@@ -38,7 +39,9 @@ class _CellEntry {
 ///
 /// - 横向可左右滑动，默认当天那列位于屏幕中央；
 /// - 纵向滚动浏览全部节次；
-/// - 单周模式按所选周过滤课程；本学期模式不分周，同一格子内多门课程左右分列。
+/// - 单周模式按所选周过滤课程；本学期模式不分周，同一格子内多门课程左右分列；
+/// - 单周模式下按日期应用节假日调休：放假停课；调休补班日按课程表的
+///   调休安排（RescheduleDay）搬入「原本日期」那天的课。
 class TimetableGrid extends StatefulWidget {
   final Schedule schedule;
   final List<Course> courses;
@@ -46,6 +49,9 @@ class TimetableGrid extends StatefulWidget {
   final bool semesterMode;
   final TimetableGridController controller;
   final void Function(Course course, ClassTime time) onCourseTap;
+
+  /// 国务院节假日调休缓存：date("YYYY-MM-DD") -> 是否放假。
+  final Map<String, bool> holidays;
 
   const TimetableGrid({
     super.key,
@@ -55,6 +61,7 @@ class TimetableGrid extends StatefulWidget {
     required this.semesterMode,
     required this.controller,
     required this.onCourseTap,
+    required this.holidays,
   });
 
   @override
@@ -118,12 +125,43 @@ class _TimetableGridState extends State<TimetableGrid> {
 
     // 统计每个「星期x + 第y节」格子里的课程（挂在节次段的起始节下）。
     final cellMap = <String, List<_CellEntry>>{};
+    // 单周模式下按调休安排搬课：原本星期几 -> 搬到补班日所在星期几
+    // （仅当补班日落在所选周才生效）。
+    final movedWeekday = <int, int>{};
+    if (!widget.semesterMode) {
+      for (final r in widget.schedule.reschedules) {
+        final target = DateTime.parse(r.date);
+        if (ScheduleMath.weekNumberOf(widget.schedule, target) !=
+            widget.week) {
+          continue;
+        }
+        final src = DateTime.parse(r.source);
+        movedWeekday[src.weekday] = target.weekday;
+      }
+    }
     for (final course in widget.courses) {
       if (course.scheduleId != widget.schedule.id) continue;
       final visible =
           widget.semesterMode || course.weeks.contains(widget.week);
       if (!visible) continue;
       for (final ct in course.classTimes) {
+        if (!widget.semesterMode) {
+          // 调休搬课：该星期的课整体挪到补班日所在列，原列不再渲染。
+          final movedTo = movedWeekday[ct.weekday];
+          if (movedTo != null) {
+            cellMap
+                .putIfAbsent('${movedTo}_${ct.startPeriod}', () => [])
+                .add(_CellEntry(course, ct));
+            continue;
+          }
+          // 放假日的课停上（隐藏，不占位）。
+          final date =
+              ScheduleMath.dateOf(widget.week, ct.weekday, widget.schedule);
+          if (HolidayService.isRest(widget.holidays,
+              ScheduleMath.dateStr(date))) {
+            continue;
+          }
+        }
         final key = '${ct.weekday}_${ct.startPeriod}';
         cellMap.putIfAbsent(key, () => []).add(_CellEntry(course, ct));
       }
@@ -180,9 +218,17 @@ class _TimetableGridState extends State<TimetableGrid> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Text(
-                  ScheduleMath.weekdayName(w),
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      ScheduleMath.weekdayName(w),
+                      style: const TextStyle(
+                          fontSize: 12, fontWeight: FontWeight.w500),
+                    ),
+                    if (!widget.semesterMode)
+                      _holidayBadge(theme, headerWeek, w),
+                  ],
                 ),
                 Text(
                   ScheduleMath.formatMd(
@@ -194,6 +240,34 @@ class _TimetableGridState extends State<TimetableGrid> {
             ),
           ),
       ],
+    );
+  }
+
+  // 单周模式下表头的调休徽标：放假日标「休」，调休补班日标「班」。
+  Widget _holidayBadge(ThemeData theme, int week, int weekday) {
+    final date = ScheduleMath.dateOf(week, weekday, widget.schedule);
+    final v = widget.holidays[ScheduleMath.dateStr(date)];
+    if (v == null) return const SizedBox.shrink();
+    final isRest = v;
+    return Container(
+      margin: const EdgeInsets.only(left: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 0.5),
+      decoration: BoxDecoration(
+        color: isRest
+            ? theme.colorScheme.errorContainer
+            : theme.colorScheme.tertiaryContainer,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        isRest ? '休' : '班',
+        style: TextStyle(
+          fontSize: 8,
+          fontWeight: FontWeight.w600,
+          color: isRest
+              ? theme.colorScheme.onErrorContainer
+              : theme.colorScheme.onTertiaryContainer,
+        ),
+      ),
     );
   }
 

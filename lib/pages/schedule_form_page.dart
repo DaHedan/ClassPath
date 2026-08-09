@@ -25,6 +25,7 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
   late List<Building> _buildings;
   late int _lunchAfter;
   late int _dinnerAfter;
+  late List<RescheduleDay> _reschedules; // 调休安排：补班日 -> 使用原本哪天的课
 
   @override
   void initState() {
@@ -39,6 +40,19 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
     _buildings = (s?.buildings ?? []).map((b) => b.copy()).toList();
     _lunchAfter = s?.lunch.afterPeriod ?? 0;
     _dinnerAfter = s?.dinner.afterPeriod ?? 0;
+    _reschedules = (s?.reschedules ?? []).map((r) => r.copy()).toList();
+    // 进入表单即后台拉取覆盖年份的节假日（已缓存年份直接跳过），
+    // 供下方「调休安排」展示补班日。
+    _refreshHolidays();
+  }
+
+  /// 按当前第一周周一与总周数覆盖的年份拉取节假日（后台执行，失败静默）。
+  void _refreshHolidays() {
+    final lastDay = _firstMonday.add(Duration(days: (_totalWeeks - 1) * 7));
+    final years = [
+      for (var y = _firstMonday.year; y <= lastDay.year; y++) y
+    ];
+    context.read<AppState>().refreshHolidays(years);
   }
 
   @override
@@ -101,6 +115,16 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
       }
     }
     final app = context.read<AppState>();
+    // 调休安排只保留落在本课程表时间范围内的项（第一周周一起 总周数*7 天内）。
+    final reschedules = _reschedules
+        .where((r) {
+          final diff = ScheduleMath.dateOnly(DateTime.parse(r.date))
+              .difference(_firstMonday)
+              .inDays;
+          return diff >= 0 && diff < _totalWeeks * 7;
+        })
+        .map((r) => r.copy())
+        .toList();
     if (widget.schedule == null) {
       final s = Schedule(
         name: name,
@@ -110,6 +134,7 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
         buildings: _buildings.map((b) => b.copy()).toList(),
         lunch: MealTime(afterPeriod: _lunchAfter, label: '午餐'),
         dinner: MealTime(afterPeriod: _dinnerAfter, label: '晚餐'),
+        reschedules: reschedules,
       );
       await app.addSchedule(s);
     } else {
@@ -120,9 +145,17 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
         ..periodsPerDay = _periodsPerDay
         ..buildings = _buildings.map((b) => b.copy()).toList()
         ..lunch = MealTime(afterPeriod: _lunchAfter, label: '午餐')
-        ..dinner = MealTime(afterPeriod: _dinnerAfter, label: '晚餐');
+        ..dinner = MealTime(afterPeriod: _dinnerAfter, label: '晚餐')
+        ..reschedules = reschedules;
       await app.updateSchedule(s);
     }
+    // 新建或修改课程表（第一周周一 / 总周数）后，拉取覆盖年份的国务院
+    // 节假日调休数据（后台执行；已缓存年份直接跳过，失败静默降级）。
+    final lastDay = _firstMonday.add(Duration(days: (_totalWeeks - 1) * 7));
+    final years = [
+      for (var y = _firstMonday.year; y <= lastDay.year; y++) y
+    ];
+    app.refreshHolidays(years);
     if (mounted) {
       // 先等主页完成重建与布局，再退出表单页：
       // 若课程表网格在路由退出动画期间才首次构建/滚动定位，
@@ -135,6 +168,7 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final app = context.watch<AppState>();
     return Scaffold(
       appBar: AppBar(title: Text(widget.schedule == null ? '新建课程表' : '编辑课程表')),
       body: ListView(
@@ -155,7 +189,10 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
             _totalWeeks,
             1,
             53,
-            (v) => setState(() => _totalWeeks = v),
+            (v) {
+              setState(() => _totalWeeks = v);
+              _refreshHolidays();
+            },
           ),
           _stepperTile(
             theme,
@@ -178,8 +215,10 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
                 firstDate: DateTime(2000),
                 lastDate: DateTime(2100),
               );
-              if (d != null)
+              if (d != null) {
                 setState(() => _firstMonday = ScheduleMath.dateOnly(d));
+                _refreshHolidays();
+              }
             },
           ),
           const Divider(height: 32),
@@ -261,6 +300,8 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
             _dinnerAfter,
             (v) => setState(() => _dinnerAfter = v),
           ),
+          const Divider(height: 32),
+          _rescheduleSection(theme, app),
         ],
       ),
       bottomNavigationBar: SafeArea(
@@ -330,6 +371,171 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
           onChanged: (v) => onChanged(v ?? 0),
         ),
       ],
+    );
+  }
+
+  /// 调休安排区块：列出本课程表时间范围内的周末补班日，
+  /// 为每个补班日选择「当天使用原本（无调休时）哪天的课」——
+  /// 可选项是该补班日对应假期（国务院数据中补班日的 target 所指）的放假日。
+  Widget _rescheduleSection(ThemeData theme, AppState app) {
+    final lastDay =
+        _firstMonday.add(Duration(days: (_totalWeeks - 1) * 7 + 6));
+    final first = ScheduleMath.dateOnly(_firstMonday);
+    final last = ScheduleMath.dateOnly(lastDay);
+    // 范围内的放假日按日期排序，连续日期归为同一个假期段
+    //（中秋、国庆各自成段，便于按假期名对应补班日）。
+    final restDays = app.holidays.entries
+        .where((e) => e.value)
+        .map((e) => DateTime.parse(e.key))
+        .where((d) => !d.isBefore(first) && !d.isAfter(last))
+        .toList()
+      ..sort();
+    final segments = <List<DateTime>>[];
+    for (final d in restDays) {
+      if (segments.isEmpty || d.difference(segments.last.last).inDays > 1) {
+        segments.add([d]);
+      } else {
+        segments.last.add(d);
+      }
+    }
+    // 补班日（国务院数据中值为 false 的日期）都是周末，工作日无需搬课。
+    final weekendDays = app.holidays.entries
+        .where((e) => !e.value)
+        .map((e) => DateTime.parse(e.key))
+        .where((d) => !d.isBefore(first) && !d.isAfter(last) && d.weekday >= 6)
+        .toList()
+      ..sort();
+    // 日期到假期段最近一端的天数（兜底用）。
+    int gapTo(DateTime d, List<DateTime> seg) {
+      final toLast = d.difference(seg.last).inDays;
+      return toLast >= 0 ? toLast : seg.first.difference(d).inDays;
+    }
+    // 补班日可搬的「原本那天」：优先按国务院数据中该补班日归属的假期名
+    //（如「国庆节」）匹配放假段；数据缺失时退回按距离最近的段。
+    List<DateTime> restDaysOf(DateTime d) {
+      if (segments.isEmpty) return const [];
+      final target = app.holidayNames[ScheduleMath.dateStr(d)];
+      if (target != null && target.isNotEmpty) {
+        for (final seg in segments) {
+          if (seg.any(
+              (x) => app.holidayNames[ScheduleMath.dateStr(x)] == target)) {
+            return seg;
+          }
+        }
+      }
+      segments.sort((a, b) {
+        final ga = gapTo(d, a);
+        final gb = gapTo(d, b);
+        return ga != gb ? ga.compareTo(gb) : a.first.compareTo(b.first);
+      });
+      return segments.first;
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '调休安排',
+          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          '放假日期自动停课；周末补班日可选择沿用对应假期放假日期的课表上课',
+          style: TextStyle(fontSize: 12, color: theme.colorScheme.outline),
+        ),
+        const SizedBox(height: 8),
+        if (app.holidays.isEmpty)
+          Text(
+            '正在获取节假日调休数据…（保存课程表后也会自动拉取）',
+            style: TextStyle(fontSize: 12, color: theme.colorScheme.outline),
+          )
+        else if (weekendDays.isEmpty)
+          Text(
+            '这个学期没有需要安排的补班日',
+            style: TextStyle(fontSize: 12, color: theme.colorScheme.outline),
+          )
+        else
+          for (final d in weekendDays)
+            if (restDaysOf(d).isNotEmpty)
+              _rescheduleTile(theme, d, restDaysOf(d)),
+      ],
+    );
+  }
+
+  /// 单个补班日的「搬课」设置行。[restDays] 为该补班日所在调休周期内的
+  /// 放假日期（可搬的「原本那天」选项）。
+  Widget _rescheduleTile(
+      ThemeData theme, DateTime d, List<DateTime> restDays) {
+    final dateStr = ScheduleMath.dateStr(d);
+    final week = d.difference(_firstMonday).inDays ~/ 7 + 1;
+    final optionValues =
+        restDays.map((rd) => ScheduleMath.dateStr(rd)).toSet();
+    // 当前已选：使用原本那天的日期；不在候选项中时视为未设置。
+    var current = '';
+    for (final r in _reschedules) {
+      if (r.date == dateStr && optionValues.contains(r.source)) {
+        current = r.source;
+        break;
+      }
+    }
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '${d.month}月${d.day}日 '
+                    '${ScheduleMath.weekdayName(d.weekday)}（补班）',
+                    style: const TextStyle(
+                        fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                ),
+                Text(
+                  '第$week周',
+                  style: TextStyle(
+                      fontSize: 11, color: theme.colorScheme.outline),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            DropdownButtonFormField<String>(
+              initialValue: current,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                labelText: '当天使用原本哪天的课',
+                isDense: true,
+                border: OutlineInputBorder(),
+                contentPadding:
+                    EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              ),
+              items: [
+                const DropdownMenuItem(value: '', child: Text('无')),
+                for (final rd in restDays)
+                  DropdownMenuItem(
+                    value: ScheduleMath.dateStr(rd),
+                    child: Text(
+                      '${ScheduleMath.weekdayName(rd.weekday)}'
+                      '（${ScheduleMath.formatMd(rd)}）',
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                  ),
+              ],
+              onChanged: (v) => setState(() {
+                final sel = v ?? '';
+                _reschedules.removeWhere((r) => r.date == dateStr);
+                if (sel.isNotEmpty) {
+                  _reschedules.add(RescheduleDay(date: dateStr, source: sel));
+                }
+              }),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

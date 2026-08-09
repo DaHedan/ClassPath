@@ -100,6 +100,30 @@ class MealTime {
   Map<String, dynamic> toJson() => {'afterPeriod': afterPeriod, 'label': label};
 }
 
+/// 调休安排：把 [source] 那天的课用在 [date] 这天。
+///
+/// 例如国务院规定 2026-10-10（周六）为调休补班日，
+/// 学校安排当天按周一（10-05）的课表上课，
+/// 则 date=2026-10-10、source=2026-10-05。
+class RescheduleDay {
+  /// 调休补班日 "YYYY-MM-DD"（实际显示课程的这一天）。
+  String date;
+
+  /// 原本日期 "YYYY-MM-DD"（使用这一天的课）。
+  String source;
+
+  RescheduleDay({required this.date, required this.source});
+
+  RescheduleDay copy() => RescheduleDay(date: date, source: source);
+
+  factory RescheduleDay.fromJson(Map<String, dynamic> json) => RescheduleDay(
+        date: json['date'] as String,
+        source: json['source'] as String,
+      );
+
+  Map<String, dynamic> toJson() => {'date': date, 'source': source};
+}
+
 /// 课程表。
 class Schedule {
   String id;
@@ -120,6 +144,9 @@ class Schedule {
   MealTime lunch;
   MealTime dinner;
 
+  /// 调休安排：把 source 那天的课用在 date 这天。
+  List<RescheduleDay> reschedules;
+
   Schedule({
     String? id,
     required this.name,
@@ -129,10 +156,12 @@ class Schedule {
     List<Building>? buildings,
     MealTime? lunch,
     MealTime? dinner,
+    List<RescheduleDay>? reschedules,
   })  : id = id ?? genId(),
         buildings = buildings ?? [],
         lunch = lunch ?? MealTime(afterPeriod: 0, label: '午餐'),
-        dinner = dinner ?? MealTime(afterPeriod: 0, label: '晚餐');
+        dinner = dinner ?? MealTime(afterPeriod: 0, label: '晚餐'),
+        reschedules = reschedules ?? [];
 
   /// 第一个楼宇的时间段，用于课程表左侧展示默认节次时间。
   Building? get firstBuilding => buildings.isNotEmpty ? buildings.first : null;
@@ -149,6 +178,7 @@ class Schedule {
         buildings: buildings.map((b) => b.copy()).toList(),
         lunch: lunch.copy(),
         dinner: dinner.copy(),
+        reschedules: reschedules.map((r) => r.copy()).toList(),
       );
 
   factory Schedule.fromJson(Map<String, dynamic> json) => Schedule(
@@ -165,6 +195,9 @@ class Schedule {
             (json['lunch'] as Map? ?? <String, dynamic>{}).cast<String, dynamic>()),
         dinner: MealTime.fromJson(
             (json['dinner'] as Map? ?? <String, dynamic>{}).cast<String, dynamic>()),
+        reschedules: (json['reschedules'] as List? ?? [])
+            .map((e) => RescheduleDay.fromJson((e as Map).cast<String, dynamic>()))
+            .toList(),
       );
 
   Map<String, dynamic> toJson() => {
@@ -176,5 +209,6 @@ class Schedule {
         'buildings': buildings.map((b) => b.toJson()).toList(),
         'lunch': lunch.toJson(),
         'dinner': dinner.toJson(),
+        'reschedules': reschedules.map((r) => r.toJson()).toList(),
       };
 }

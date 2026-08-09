@@ -1177,7 +1177,6 @@ class _ColorPickerDialog extends StatefulWidget {
   final int current;
 
   const _ColorPickerDialog({required this.current});
-
   @override
   State<_ColorPickerDialog> createState() => _ColorPickerDialogState();
 }
@@ -1277,3 +1276,4 @@ class _ColorPickerDialogState extends State<_ColorPickerDialog> {
     );
   }
 }
+

@@ -269,6 +269,7 @@ class _HomePageState extends State<HomePage> {
               semesterMode: _semesterMode,
               controller: _gridController,
               onCourseTap: _openCourse,
+              holidays: app.holidays,
             ),
           ),
           _ExamSection(

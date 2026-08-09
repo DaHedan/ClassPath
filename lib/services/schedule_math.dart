@@ -8,6 +8,12 @@ class ScheduleMath {
 
   static DateTime dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
 
+  /// "YYYY-MM-DD" 格式的日期字符串（用于与节假日数据对齐）。
+  static String dateStr(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-'
+      '${d.month.toString().padLeft(2, '0')}-'
+      '${d.day.toString().padLeft(2, '0')}';
+
   /// 某日期属于课程表的第几周（范围裁剪到 1..totalWeeks）。
   static int weekNumberOf(Schedule s, DateTime now) {
     final diff = dateOnly(now).difference(dateOnly(s.firstMonday)).inDays;
