@@ -376,28 +376,19 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
 
   /// 调休安排区块：列出本课程表时间范围内的周末补班日，
   /// 为每个补班日选择「当天使用原本（无调休时）哪天的课」——
-  /// 可选项是该补班日对应假期（国务院数据中补班日的 target 所指）的放假日。
+  /// 可选项为该课程表涵盖的所有放假日。
   Widget _rescheduleSection(ThemeData theme, AppState app) {
     final lastDay =
         _firstMonday.add(Duration(days: (_totalWeeks - 1) * 7 + 6));
     final first = ScheduleMath.dateOnly(_firstMonday);
     final last = ScheduleMath.dateOnly(lastDay);
-    // 范围内的放假日按日期排序，连续日期归为同一个假期段
-    //（中秋、国庆各自成段，便于按假期名对应补班日）。
+    // 课程表范围内的所有放假日，作为每个补班日可搬的「原本那天」选项。
     final restDays = app.holidays.entries
         .where((e) => e.value)
         .map((e) => DateTime.parse(e.key))
         .where((d) => !d.isBefore(first) && !d.isAfter(last))
         .toList()
       ..sort();
-    final segments = <List<DateTime>>[];
-    for (final d in restDays) {
-      if (segments.isEmpty || d.difference(segments.last.last).inDays > 1) {
-        segments.add([d]);
-      } else {
-        segments.last.add(d);
-      }
-    }
     // 补班日（国务院数据中值为 false 的日期）都是周末，工作日无需搬课。
     final weekendDays = app.holidays.entries
         .where((e) => !e.value)
@@ -405,31 +396,6 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
         .where((d) => !d.isBefore(first) && !d.isAfter(last) && d.weekday >= 6)
         .toList()
       ..sort();
-    // 日期到假期段最近一端的天数（兜底用）。
-    int gapTo(DateTime d, List<DateTime> seg) {
-      final toLast = d.difference(seg.last).inDays;
-      return toLast >= 0 ? toLast : seg.first.difference(d).inDays;
-    }
-    // 补班日可搬的「原本那天」：优先按国务院数据中该补班日归属的假期名
-    //（如「国庆节」）匹配放假段；数据缺失时退回按距离最近的段。
-    List<DateTime> restDaysOf(DateTime d) {
-      if (segments.isEmpty) return const [];
-      final target = app.holidayNames[ScheduleMath.dateStr(d)];
-      if (target != null && target.isNotEmpty) {
-        for (final seg in segments) {
-          if (seg.any(
-              (x) => app.holidayNames[ScheduleMath.dateStr(x)] == target)) {
-            return seg;
-          }
-        }
-      }
-      segments.sort((a, b) {
-        final ga = gapTo(d, a);
-        final gb = gapTo(d, b);
-        return ga != gb ? ga.compareTo(gb) : a.first.compareTo(b.first);
-      });
-      return segments.first;
-    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -440,7 +406,7 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
         ),
         const SizedBox(height: 4),
         Text(
-          '放假日期自动停课；周末补班日可选择沿用对应假期放假日期的课表上课',
+          '放假日期自动停课；周末补班日可选择沿用本学期任意放假日期的课表上课',
           style: TextStyle(fontSize: 12, color: theme.colorScheme.outline),
         ),
         const SizedBox(height: 8),
@@ -449,21 +415,19 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
             '正在获取节假日调休数据…（保存课程表后也会自动拉取）',
             style: TextStyle(fontSize: 12, color: theme.colorScheme.outline),
           )
-        else if (weekendDays.isEmpty)
+        else if (weekendDays.isEmpty || restDays.isEmpty)
           Text(
             '这个学期没有需要安排的补班日',
             style: TextStyle(fontSize: 12, color: theme.colorScheme.outline),
           )
         else
-          for (final d in weekendDays)
-            if (restDaysOf(d).isNotEmpty)
-              _rescheduleTile(theme, d, restDaysOf(d)),
+          for (final d in weekendDays) _rescheduleTile(theme, d, restDays),
       ],
     );
   }
 
-  /// 单个补班日的「搬课」设置行。[restDays] 为该补班日所在调休周期内的
-  /// 放假日期（可搬的「原本那天」选项）。
+  /// 单个补班日的「搬课」设置行。[restDays] 为该课程表涵盖的全部
+  /// 放假日（可搬的「原本那天」选项）。
   Widget _rescheduleTile(
       ThemeData theme, DateTime d, List<DateTime> restDays) {
     final dateStr = ScheduleMath.dateStr(d);
