@@ -95,6 +95,13 @@ class _TimetableGridState extends State<TimetableGrid> {
   /// 触控板双指缩放基准（PointerPanZoom 的 scale 是相对手势起点的累计值）。
   double _panZoomBase = 1.0;
 
+  /// 移动端触摸捏合：当前按下的指针位置（pointer -> 位置）。
+  final Map<int, Offset> _touchPointers = {};
+
+  /// 触摸捏合起点：两指初始间距与当时的缩放倍率。
+  double? _pinchBaseDist;
+  double? _pinchBaseScale;
+
   /// 最近一次 build 计算的各列宽度（供滚动居中与缩放锚定使用）。
   List<double> _dayWidths = const [];
 
@@ -187,6 +194,41 @@ class _TimetableGridState extends State<TimetableGrid> {
   void _onPanZoomUpdate(PointerPanZoomUpdateEvent event) {
     _applyScale(_panZoomBase * event.scale);
   }
+
+  /// 移动端触摸双指捏合：按两指间距相对起点的变化驱动缩放。
+  /// 单指时不动（长度不足 2），因此不会与网格的拖动滚动抢手势。
+  void _updatePinch() {
+    if (_touchPointers.length != 2) return;
+    final pts = _touchPointers.values.toList();
+    final dist = (pts[0] - pts[1]).distance;
+    if (_pinchBaseDist == null || _pinchBaseDist! <= 0) {
+      _pinchBaseDist = dist;
+      _pinchBaseScale = _scale;
+      return;
+    }
+    _applyScale(_pinchBaseScale! * (dist / _pinchBaseDist!));
+  }
+
+  void _onTouchPointerDown(PointerDownEvent e) {
+    _touchPointers[e.pointer] = e.localPosition;
+    _updatePinch();
+  }
+
+  void _onTouchPointerMove(PointerMoveEvent e) {
+    if (_touchPointers.containsKey(e.pointer)) {
+      _touchPointers[e.pointer] = e.localPosition;
+      _updatePinch();
+    }
+  }
+
+  void _onTouchPointerEnd(PointerEvent e) {
+    if (_touchPointers.remove(e.pointer) != null) {
+      _pinchBaseDist = null;
+      _pinchBaseScale = null;
+    }
+  }
+
+  void _onTouchPointerCancel(PointerCancelEvent e) => _onTouchPointerEnd(e);
 
   /// 各列宽度：本学期模式下，含并排多门课的列按 _sharedColFactor 加宽；
   /// 单周模式各列等宽。
@@ -288,6 +330,11 @@ class _TimetableGridState extends State<TimetableGrid> {
           onPointerSignal: _onPointerSignal,
           onPointerPanZoomStart: _onPanZoomStart,
           onPointerPanZoomUpdate: _onPanZoomUpdate,
+          // 移动端触摸双指捏合缩放（桌面触控板走上面的 PanZoom 事件）。
+          onPointerDown: _onTouchPointerDown,
+          onPointerMove: _onTouchPointerMove,
+          onPointerUp: _onTouchPointerEnd,
+          onPointerCancel: _onTouchPointerCancel,
           child: SingleChildScrollView(
             controller: widget.controller.hScroll,
             scrollDirection: Axis.horizontal,

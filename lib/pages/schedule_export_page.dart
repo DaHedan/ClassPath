@@ -120,17 +120,19 @@ class _ScheduleExportPageState extends State<ScheduleExportPage> {
                       ),
                     )
                   else ...[
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      color: Colors.white,
-                      child: QrImageView(
-                        data: _payload!,
-                        size: 240,
-                        version: QrVersions.auto,
-                        errorCorrectionLevel: QrErrorCorrectLevel.L,
-                        errorStateBuilder: (context, error) => Text(
-                          '二维码生成失败：$error',
-                          style: const TextStyle(fontSize: 12),
+                    Center(
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        color: Colors.white,
+                        child: QrImageView(
+                          data: _payload,
+                          size: 240,
+                          version: QrVersions.auto,
+                          errorCorrectionLevel: QrErrorCorrectLevel.L,
+                          errorStateBuilder: (context, error) => Text(
+                            '二维码生成失败：$error',
+                            style: const TextStyle(fontSize: 12),
+                          ),
                         ),
                       ),
                     ),
