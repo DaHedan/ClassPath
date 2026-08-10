@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../models/course.dart';
 import '../models/schedule.dart';
+import '../services/schedule_math.dart';
 import '../state/app_state.dart';
 import 'course_detail_page.dart';
 import 'schedule_form_page.dart';
@@ -125,7 +126,8 @@ class ScheduleListPage extends StatelessWidget {
   }
 }
 
-/// 课程表列表底部的卡片：展示选中（主页正在使用）课程表的课程横向列表。
+/// 课程表列表底部的卡片：展示选中（主页正在使用）课程表的课程列表，
+/// 每门课一行详细信息（编号、教师、上课时间、地点、上课周）。
 class _ActiveCoursesPanel extends StatelessWidget {
   final Schedule schedule;
   final List<Course> courses;
@@ -134,6 +136,34 @@ class _ActiveCoursesPanel extends StatelessWidget {
     required this.schedule,
     required this.courses,
   });
+
+  /// 地点紧凑文本：楼宇与房号之间不加空格（如「第一教学楼A101」）。
+  static String _locText(CourseLocation loc) {
+    final b = loc.building.trim();
+    final r = loc.room.trim();
+    if (b.isEmpty) return r;
+    if (r.isEmpty) return b;
+    return '$b$r';
+  }
+
+  /// 一门课的详细信息（不含课程名）。
+  String _detailOf(Course c) {
+    final parts = <String>[];
+    if (c.id.isNotEmpty) parts.add('编号${c.id}');
+    final teacher = (c.teacher ?? '').trim();
+    if (teacher.isNotEmpty) parts.add(teacher);
+    for (final ct in c.classTimes) {
+      final loc = ct.location != null && !ct.location!.isEmpty
+          ? ct.location!
+          : c.location;
+      final l = _locText(loc);
+      var t = '${ct.weekdayLabel}${ct.periodLabel} ${ct.start}-${ct.end}';
+      if (l.isNotEmpty) t = '$t $l';
+      if (ct.weeks != null) t = '$t ${ScheduleMath.weeksToText(ct.weeks!)}';
+      parts.add(t);
+    }
+    return parts.join(' · ');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -167,56 +197,70 @@ class _ActiveCoursesPanel extends StatelessWidget {
                         fontSize: 12, color: theme.colorScheme.outline)),
               ],
             ),
-            const SizedBox(height: 8),
             if (courses.isEmpty)
-              Text(
-                '该课程表暂无课程',
-                style: TextStyle(
-                    fontSize: 12, color: theme.colorScheme.outline),
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Text(
+                  '该课程表暂无课程',
+                  style: TextStyle(
+                      fontSize: 12, color: theme.colorScheme.outline),
+                ),
               )
             else
-              SizedBox(
-                height: 34,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: courses.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 8),
-                  itemBuilder: (context, index) =>
-                      Center(child: _courseChip(context, courses[index])),
-                ),
-              ),
+              for (final c in courses) _courseRow(context, c),
           ],
         ),
       ),
     );
   }
 
-  /// 课程名小色块，点击进入课程详情。
-  Widget _courseChip(BuildContext context, Course c) {
-    final color = Color(c.colorValue);
-    final textColor =
-        color.computeLuminance() > 0.5 ? Colors.black87 : Colors.white;
-    return Material(
-      color: color,
-      borderRadius: BorderRadius.circular(999),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(999),
-        onTap: () => Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => CourseDetailPage(course: c)),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          child: Text(
-            c.name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
-              color: textColor,
+  /// 每门课一行：色点 + 名称 + 详细信息，点击进入课程详情。
+  Widget _courseRow(BuildContext context, Course c) {
+    final theme = Theme.of(context);
+    final detail = _detailOf(c);
+    return InkWell(
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => CourseDetailPage(course: c)),
+      ),
+      borderRadius: BorderRadius.circular(6),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 7),
+        child: Row(
+          children: [
+            Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(
+                color: Color(c.colorValue),
+                shape: BoxShape.circle,
+              ),
             ),
-          ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(
+                      text: c.name,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    if (detail.isNotEmpty)
+                      TextSpan(
+                        text: ' · $detail',
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: theme.colorScheme.onSurfaceVariant),
+                      ),
+                  ],
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 13),
+              ),
+            ),
+            Icon(Icons.chevron_right, size: 18, color: Colors.grey),
+          ],
         ),
       ),
     );
