@@ -29,11 +29,13 @@ class ScheduleListPage extends StatelessWidget {
           content: Text('确定删除「$name」吗？该课程表下的所有课程将一并删除。'),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('取消')),
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消'),
+            ),
             FilledButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('删除')),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('删除'),
+            ),
           ],
         ),
       );
@@ -48,20 +50,21 @@ class ScheduleListPage extends StatelessWidget {
             tooltip: '设置',
             icon: const Icon(Icons.settings_outlined),
             onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const SettingsPage())),
+              context,
+              MaterialPageRoute(builder: (_) => const SettingsPage()),
+            ),
           ),
         ],
       ),
       body: app.schedules.isEmpty
           ? Center(
-              child: Text('还没有课程表，点击下方按钮新建或导入',
-                  style: TextStyle(
-                      color: Theme.of(context).colorScheme.outline)),
+              child: Text(
+                '还没有课程表，点击下方按钮新建或导入',
+                style: TextStyle(color: Theme.of(context).colorScheme.outline),
+              ),
             )
           : ReorderableListView.builder(
-              // 底部留出空间给「新建课程表」FAB。
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
               itemCount: app.schedules.length,
               // 拖动拇指自绘在每行前，footer（课程面板）不参与排序。
               buildDefaultDragHandles: false,
@@ -86,8 +89,11 @@ class ScheduleListPage extends StatelessWidget {
                         index: index,
                         child: Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 4),
-                          child: Icon(Icons.drag_handle,
-                              size: 20, color: Colors.grey),
+                          child: Icon(
+                            Icons.drag_handle,
+                            size: 20,
+                            color: Colors.grey,
+                          ),
                         ),
                       ),
                       Expanded(
@@ -97,8 +103,11 @@ class ScheduleListPage extends StatelessWidget {
                             groupValue: activeId,
                             onChanged: (_) => app.setActiveSchedule(s.id),
                           ),
-                          title: Text(s.name,
-                              maxLines: 1, overflow: TextOverflow.ellipsis),
+                          title: Text(
+                            s.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                           subtitle: Text(
                             '${s.info} · ${app.coursesOf(s.id).length}门课',
                             style: const TextStyle(fontSize: 12),
@@ -107,40 +116,46 @@ class ScheduleListPage extends StatelessWidget {
                           onTap: () => Navigator.push(
                             context,
                             MaterialPageRoute(
-                                builder: (_) =>
-                                    ScheduleFormPage(schedule: s)),
+                              builder: (_) => ScheduleFormPage(schedule: s),
+                            ),
                           ),
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               IconButton(
                                 tooltip: '分享',
-                                icon: const Icon(Icons.share_outlined,
-                                    size: 20),
+                                icon: const Icon(
+                                  Icons.share_outlined,
+                                  size: 20,
+                                ),
                                 onPressed: () => Navigator.push(
                                   context,
                                   MaterialPageRoute(
-                                      builder: (_) => ScheduleExportPage(
-                                            schedule: s,
-                                            courses: app.coursesOf(s.id),
-                                          )),
+                                    builder: (_) => ScheduleExportPage(
+                                      schedule: s,
+                                      courses: app.coursesOf(s.id),
+                                    ),
+                                  ),
                                 ),
                               ),
                               IconButton(
                                 tooltip: '编辑',
-                                icon:
-                                    const Icon(Icons.edit_outlined, size: 20),
+                                icon: const Icon(Icons.edit_outlined, size: 20),
                                 onPressed: () => Navigator.push(
                                   context,
                                   MaterialPageRoute(
-                                      builder: (_) =>
-                                          ScheduleFormPage(schedule: s)),
+                                    builder: (_) =>
+                                        ScheduleFormPage(schedule: s),
+                                  ),
                                 ),
                               ),
                               IconButton(
                                 tooltip: '删除',
-                                icon: const Icon(Icons.delete_outline,
-                                    size: 20, color: Colors.red),
+                                icon: const Icon(
+                                  Icons.delete_outline,
+                                  size: 20,
+                                  color: Colors.red,
+                                ),
                                 onPressed: () => confirmDelete(s.id, s.name),
                               ),
                             ],
@@ -152,29 +167,37 @@ class ScheduleListPage extends StatelessWidget {
                 );
               },
             ),
-      floatingActionButton: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          FloatingActionButton.extended(
-            heroTag: 'fab_new_schedule',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const ScheduleFormPage()),
-            ),
-            icon: const Icon(Icons.add),
-            label: const Text('新建课程表'),
+      // 两个按钮放在底部栏（不浮动），列表区域结束于按钮上方，
+      // 课程面板滚动到底时下边缘不会进入按钮区域。
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              FloatingActionButton.extended(
+                heroTag: 'fab_new_schedule',
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const ScheduleFormPage()),
+                ),
+                icon: const Icon(Icons.add),
+                label: const Text('新建课程表'),
+              ),
+              const SizedBox(width: 12),
+              FloatingActionButton.extended(
+                heroTag: 'fab_import_schedule',
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const ScheduleImportPage()),
+                ),
+                icon: const Icon(Icons.file_download_outlined),
+                label: const Text('导入课程表'),
+              ),
+            ],
           ),
-          const SizedBox(width: 12),
-          FloatingActionButton.extended(
-            heroTag: 'fab_import_schedule',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const ScheduleImportPage()),
-            ),
-            icon: const Icon(Icons.file_download_outlined),
-            label: const Text('导入课程表'),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -186,10 +209,7 @@ class _ActiveCoursesPanel extends StatelessWidget {
   final Schedule schedule;
   final List<Course> courses;
 
-  const _ActiveCoursesPanel({
-    required this.schedule,
-    required this.courses,
-  });
+  const _ActiveCoursesPanel({required this.schedule, required this.courses});
 
   /// 地点紧凑文本：楼宇与房号之间不加空格（如「第一教学楼A101」）。
   static String _locText(CourseLocation loc) {
@@ -231,8 +251,11 @@ class _ActiveCoursesPanel extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(Icons.school_outlined,
-                    size: 16, color: theme.colorScheme.primary),
+                Icon(
+                  Icons.school_outlined,
+                  size: 16,
+                  color: theme.colorScheme.primary,
+                ),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
@@ -246,18 +269,25 @@ class _ActiveCoursesPanel extends StatelessWidget {
                     ),
                   ),
                 ),
-                Text('${courses.length}门',
-                    style: TextStyle(
-                        fontSize: 12, color: theme.colorScheme.outline)),
+                Text(
+                  '${courses.length}门',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: theme.colorScheme.outline,
+                  ),
+                ),
               ],
             ),
+            const SizedBox(height: 4),
             if (courses.isEmpty)
               Padding(
-                padding: const EdgeInsets.only(top: 12),
+                padding: const EdgeInsets.only(top: 8),
                 child: Text(
                   '该课程表暂无课程',
                   style: TextStyle(
-                      fontSize: 12, color: theme.colorScheme.outline),
+                    fontSize: 12,
+                    color: theme.colorScheme.outline,
+                  ),
                 ),
               )
             else
@@ -280,8 +310,11 @@ class _ActiveCoursesPanel extends StatelessWidget {
                         index: index,
                         child: Padding(
                           padding: const EdgeInsets.only(right: 6),
-                          child: Icon(Icons.drag_handle,
-                              size: 18, color: Colors.grey),
+                          child: Icon(
+                            Icons.drag_handle,
+                            size: 18,
+                            color: Colors.grey,
+                          ),
                         ),
                       ),
                       Expanded(child: _courseRow(context, c)),
@@ -330,8 +363,9 @@ class _ActiveCoursesPanel extends StatelessWidget {
                       TextSpan(
                         text: ' · $detail',
                         style: TextStyle(
-                            fontSize: 12,
-                            color: theme.colorScheme.onSurfaceVariant),
+                          fontSize: 12,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
                       ),
                   ],
                 ),
