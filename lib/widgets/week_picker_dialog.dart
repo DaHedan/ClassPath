@@ -51,20 +51,40 @@ class _WeekPickerDialogState extends State<_WeekPickerDialog> {
             crossAxisSpacing: 6,
           ),
           itemCount: widget.totalWeeks,
+          // 自定义格子：撑满网格单元，所有格子统一为方形，
+          // 选中只用颜色区分、不改变形状（避免 ChoiceChip 选中加
+          // 对勾导致一位数/两位数/选中态宽度不一致、数字显示不全）。
           itemBuilder: (context, index) {
             final week = index + 1;
             final selected = week == _selected;
             final isToday = week == widget.todayWeek;
             final scheme = Theme.of(context).colorScheme;
-            return ChoiceChip(
-              label: Text('$week'),
-              selected: selected,
-              selectedColor: scheme.primaryContainer,
-              // 所有格子统一形状，仅用主色描边给本周做小高亮。
-              side: isToday
-                  ? BorderSide(color: scheme.primary, width: 1.4)
-                  : null,
-              onSelected: (_) => setState(() => _selected = week),
+            return InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: () => setState(() => _selected = week),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: selected
+                      ? scheme.primaryContainer
+                      : scheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(10),
+                  // 本周用主色描边做小高亮。
+                  border: isToday
+                      ? Border.all(color: scheme.primary, width: 1.4)
+                      : null,
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  '$week',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                    color: selected
+                        ? scheme.onPrimaryContainer
+                        : scheme.onSurface,
+                  ),
+                ),
+              ),
             );
           },
         ),
