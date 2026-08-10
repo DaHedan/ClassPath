@@ -202,7 +202,7 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
           const SizedBox(height: 16),
           _stepperTile(
             theme,
-            '总周数（1-53）',
+            '总周数',
             _totalWeeks,
             1,
             53,
@@ -217,7 +217,12 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
             _periodsPerDay,
             1,
             20,
-            (v) => setState(() => _periodsPerDay = v),
+            (v) => setState(() {
+              _periodsPerDay = v;
+              // 餐后节数超出新范围时重置为「不设置」。
+              if (_lunchAfter > v) _lunchAfter = 0;
+              if (_dinnerAfter > v) _dinnerAfter = 0;
+            }),
           ),
           const SizedBox(height: 8),
           ListTile(
@@ -357,12 +362,20 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
               value != null && value > min ? () => onChanged(value - 1) : null,
         ),
         SizedBox(
-          width: 44,
-          child: Text(
-            value == null ? '未设置' : '$value',
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-          ),
+          width: 52,
+          child: value == null
+              ? Text(
+                  '未设置',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      fontSize: 12, color: theme.colorScheme.outline),
+                )
+              : Text(
+                  '$value',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.bold),
+                ),
         ),
         IconButton(
           icon: const Icon(Icons.add_circle_outline),
@@ -386,14 +399,19 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
       children: [
         Text(label),
         const Spacer(),
-        DropdownButton<int>(
-          value: value,
-          items: [
-            const DropdownMenuItem(value: 0, child: Text('不设置')),
-            for (var i = 1; i <= (_periodsPerDay ?? 0); i++)
-              DropdownMenuItem(value: i, child: Text('第$i节后')),
-          ],
-          onChanged: (v) => onChanged(v ?? 0),
+        // 固定宽度，避免选中文字长度变化导致选项位置左右移动。
+        SizedBox(
+          width: 110,
+          child: DropdownButton<int>(
+            value: value,
+            isExpanded: true,
+            items: [
+              const DropdownMenuItem(value: 0, child: Text('不设置')),
+              for (var i = 1; i <= (_periodsPerDay ?? 0); i++)
+                DropdownMenuItem(value: i, child: Text('第$i节后')),
+            ],
+            onChanged: (v) => onChanged(v ?? 0),
+          ),
         ),
       ],
     );
