@@ -28,15 +28,17 @@ class ScheduleExportPage extends StatefulWidget {
 }
 
 class _ScheduleExportPageState extends State<ScheduleExportPage> {
-  late final String _payload = ScheduleShareService.qrPayload(
-      widget.schedule, widget.courses);
-  late final String _json =
-      ScheduleShareService.encode(widget.schedule, widget.courses);
-  late final bool _compressed =
-      _payload.startsWith(compressedMagic);
+  late final String? _payload = ScheduleShareService.qrPayload(
+    widget.schedule,
+    widget.courses,
+  );
+  late final String _json = ScheduleShareService.encode(
+    widget.schedule,
+    widget.courses,
+  );
+  late final bool _compressed = _payload?.startsWith(compressedMagic) ?? false;
 
-  String get _fileName =>
-      '${widget.schedule.name}_课表.json';
+  String get _fileName => '${widget.schedule.name}_课表.json';
 
   Future<void> _saveFile() async {
     final bytes = Uint8List.fromList(utf8.encode(_json));
@@ -75,10 +77,11 @@ class _ScheduleExportPageState extends State<ScheduleExportPage> {
           // 课程表信息
           Card(
             child: ListTile(
-              leading: Icon(Icons.calendar_month_outlined,
-                  color: theme.colorScheme.primary),
-              title: Text(s.name,
-                  maxLines: 1, overflow: TextOverflow.ellipsis),
+              leading: Icon(
+                Icons.calendar_month_outlined,
+                color: theme.colorScheme.primary,
+              ),
+              title: Text(s.name, maxLines: 1, overflow: TextOverflow.ellipsis),
               subtitle: Text(
                 '${s.info} · ${widget.courses.length}门课\n'
                 '第一周周一 ${_dateText(s.firstMonday)}',
@@ -94,33 +97,53 @@ class _ScheduleExportPageState extends State<ScheduleExportPage> {
               padding: const EdgeInsets.all(20),
               child: Column(
                 children: [
-                  Text('扫码导入此课程表',
-                      style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: theme.colorScheme.primary)),
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    color: Colors.white,
-                    child: QrImageView(
-                      data: _payload,
-                      size: 240,
-                      version: QrVersions.auto,
-                      errorCorrectionLevel: QrErrorCorrectLevel.L,
-                      errorStateBuilder: (context, error) => Text(
-                        '二维码生成失败：$error',
-                        style: const TextStyle(fontSize: 12),
-                      ),
+                  Text(
+                    '扫码导入此课程表',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: theme.colorScheme.primary,
                     ),
                   ),
-                  if (_compressed) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      '课程表内容较长，二维码已自动压缩编码',
-                      style: TextStyle(
-                          fontSize: 12, color: theme.colorScheme.outline),
+                  const SizedBox(height: 16),
+                  if (_payload == null)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: Text(
+                        '课程表内容过大，二维码无法承载。\n'
+                        '请使用下方「保存为 .json 文件」或「复制 JSON 内容」导出。',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: theme.colorScheme.outline,
+                        ),
+                      ),
+                    )
+                  else ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      color: Colors.white,
+                      child: QrImageView(
+                        data: _payload!,
+                        size: 240,
+                        version: QrVersions.auto,
+                        errorCorrectionLevel: QrErrorCorrectLevel.L,
+                        errorStateBuilder: (context, error) => Text(
+                          '二维码生成失败：$error',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ),
                     ),
+                    if (_compressed) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        '课程表内容较长，二维码已自动压缩编码',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: theme.colorScheme.outline,
+                        ),
+                      ),
+                    ],
                   ],
                 ],
               ),

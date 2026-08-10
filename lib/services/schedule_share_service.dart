@@ -3,7 +3,6 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:image/image.dart' as img;
-import 'package:qr_flutter/qr_flutter.dart';
 import 'package:zxing2/qrcode.dart' as zxing;
 
 import '../models/course.dart';
@@ -20,15 +19,16 @@ class ScheduleSharePackage {
   ScheduleSharePackage({required this.schedule, required this.courses});
 
   Map<String, dynamic> toJson() => {
-        'type': 'classpath_schedule',
-        'version': 1,
-        'schedule': schedule.toJson(),
-        'courses': courses.map((c) => c.toJson()).toList(),
-      };
+    'type': 'classpath_schedule',
+    'version': 1,
+    'schedule': schedule.toJson(),
+    'courses': courses.map((c) => c.toJson()).toList(),
+  };
 
   factory ScheduleSharePackage.fromJson(Map<String, dynamic> json) {
     final s = Schedule.fromJson(
-        (json['schedule'] as Map).cast<String, dynamic>());
+      (json['schedule'] as Map).cast<String, dynamic>(),
+    );
     final cs = (json['courses'] as List? ?? [])
         .map((e) => Course.fromJson((e as Map).cast<String, dynamic>()))
         .toList();
@@ -53,8 +53,7 @@ class ScheduleShareService {
       final obj = jsonDecode(text);
       if (obj is! Map) return null;
       final map = obj.cast<String, dynamic>();
-      if (map['type'] != 'classpath_schedule' ||
-          map['schedule'] is! Map) {
+      if (map['type'] != 'classpath_schedule' || map['schedule'] is! Map) {
         return null;
       }
       return ScheduleSharePackage.fromJson(map);
@@ -63,19 +62,22 @@ class ScheduleShareService {
     }
   }
 
-  /// 生成二维码内容：优先使用原始 JSON；若超出二维码容量则 gzip 压缩
-  /// 后 base64 编码，并加上固定前缀以便解码时识别。
-  static String qrPayload(Schedule schedule, List<Course> courses) {
+  /// QR 可承载的最大字节数：version 40 + errorCorrectionLevel L（byte 模式
+  /// 数据位约 2956 字节），再预留模式/长度等头部开销，取 2950。
+  static const int _qrMaxBytes = 2950;
+
+  /// 生成二维码内容：优先使用原始 JSON；超出容量则 gzip 压缩后 base64
+  /// 编码，并加前缀以便解码时识别。压缩后仍超出容量则返回 null。
+  static String? qrPayload(Schedule schedule, List<Course> courses) {
     final raw = encode(schedule, courses);
-    try {
-      // 校验容量：超长会抛 InputTooLongException。
-      QrCode.fromData(data: raw, errorCorrectLevel: QrErrorCorrectLevel.L);
-      return raw;
-    } on InputTooLongException {
-      final bytes = Uint8List.fromList(utf8.encode(raw));
-      final gz = GZipEncoder().encodeBytes(bytes, level: 9);
-      return '$compressedMagic${base64Encode(gz)}';
-    }
+    if (utf8.encode(raw).length <= _qrMaxBytes) return raw;
+    final gz = GZipEncoder().encodeBytes(
+      Uint8List.fromList(utf8.encode(raw)),
+      level: 9,
+    );
+    final compressed = '$compressedMagic${base64Encode(gz)}';
+    if (compressed.length <= _qrMaxBytes) return compressed;
+    return null;
   }
 
   /// 解析二维码内容（可能是原始 JSON 或 gzip 压缩的 base64），失败返回 null。
@@ -130,7 +132,10 @@ class ScheduleShareService {
     final longest = w > h ? w : h;
     if (longest <= maxSide) return image;
     final scale = maxSide / longest;
-    return img.copyResize(image,
-        width: (w * scale).round(), height: (h * scale).round());
+    return img.copyResize(
+      image,
+      width: (w * scale).round(),
+      height: (h * scale).round(),
+    );
   }
 }
