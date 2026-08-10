@@ -42,7 +42,9 @@ class _TimeDialPickerState extends State<_TimeDialPicker> {
 
   /// 根据点击/拖动位置选择小时或分钟。
   /// [center] 为表盘中心（相对手势局部坐标）。
-  void _onDial(Offset local, {required Offset center}) {
+  /// [autoSwitch] 为 true 时（点按），选完小时立即切到分钟。
+  void _onDial(Offset local,
+      {required Offset center, bool autoSwitch = false}) {
     final dx = local.dx - center.dx;
     final dy = local.dy - center.dy;
     final r = math.sqrt(dx * dx + dy * dy);
@@ -50,9 +52,9 @@ class _TimeDialPickerState extends State<_TimeDialPicker> {
     var angle = math.atan2(dy, dx) + math.pi / 2; // 顶部为 0
     if (angle < 0) angle += 2 * math.pi;
     if (angle >= 2 * math.pi) angle -= 2 * math.pi;
-    final index = (angle / (2 * math.pi / 12)).round() % 12; // 顶部起 0..11
     setState(() {
       if (_pickingHour) {
+        final index = (angle / (2 * math.pi / 12)).round() % 12; // 顶部起 0..11
         // 内圈 1-12，顶部为 12；外圈 13-24，顶部为 24（即 0 点）。
         final inner = r < (_innerR + _outerR) / 2;
         if (inner) {
@@ -60,8 +62,11 @@ class _TimeDialPickerState extends State<_TimeDialPicker> {
         } else {
           _hour = index == 0 ? 0 : index + 12;
         }
+        if (autoSwitch) _pickingHour = false;
       } else {
-        _minute = index * 5;
+        // 分钟：一圈 60 个刻度，支持任意非 5 倍数。
+        final index = (angle / (2 * math.pi / 60)).round() % 60;
+        _minute = index;
       }
     });
   }
@@ -100,9 +105,17 @@ class _TimeDialPickerState extends State<_TimeDialPicker> {
               height: _dialSize,
               child: GestureDetector(
                 onTapDown: (d) => _onDial(d.localPosition,
-                    center: const Offset(_dialSize / 2, _dialSize / 2)),
+                    center: const Offset(_dialSize / 2, _dialSize / 2),
+                    autoSwitch: true),
                 onPanUpdate: (d) => _onDial(d.localPosition,
                     center: const Offset(_dialSize / 2, _dialSize / 2)),
+                // 拖动选完小时后（松手/取消）切到分钟。
+                onPanEnd: (_) {
+                  if (_pickingHour) setState(() => _pickingHour = false);
+                },
+                onPanCancel: () {
+                  if (_pickingHour) setState(() => _pickingHour = false);
+                },
                 child: CustomPaint(
                   size: const Size(_dialSize, _dialSize),
                   painter: _DialPainter(
@@ -208,16 +221,28 @@ class _DialPainter extends CustomPainter {
       final index = inner ? value % 12 : (value == 0 ? 0 : value - 12);
       _drawHand(canvas, center, _angleOf(index), inner ? _innerR : _outerR);
     } else {
-      // 分钟：一圈 12 个刻度（0,5,10,...55），顶部为 0。
-      for (var m = 0; m < 60; m += 5) {
-        final index = m ~/ 5;
-        _drawNumber(canvas, '$m',
-            center +
-                Offset(math.cos(_angleOf(index)), math.sin(_angleOf(index))) *
-                    _outerR,
-            selected: minute == m);
+      // 分钟：一圈 60 个刻度，每 5 的倍数显示数字（0,5,...,55），
+      // 其余为小刻度点；选中任意分钟都有高亮。
+      for (var m = 0; m < 60; m++) {
+        final angle = m * (2 * math.pi / 60) - math.pi / 2;
+        final pos = center +
+            Offset(math.cos(angle), math.sin(angle)) * _outerR;
+        final selected = minute == m;
+        if (m % 5 == 0) {
+          _drawNumber(canvas, '$m', pos, selected: selected);
+        } else {
+          canvas.drawCircle(
+            pos,
+            selected ? 4.5 : 2.5,
+            Paint()
+              ..color = selected
+                  ? scheme.primary
+                  : scheme.onSurfaceVariant.withValues(alpha: 0.45),
+          );
+        }
       }
-      _drawHand(canvas, center, _angleOf(minute ~/ 5), _outerR);
+      _drawHand(canvas, center,
+          minute * (2 * math.pi / 60) - math.pi / 2, _outerR);
     }
   }
 
