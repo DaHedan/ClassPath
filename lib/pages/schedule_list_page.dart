@@ -119,16 +119,13 @@ class ScheduleListPage extends StatelessWidget {
                               builder: (_) => ScheduleFormPage(schedule: s),
                             ),
                           ),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                tooltip: '分享',
-                                icon: const Icon(
-                                  Icons.share_outlined,
-                                  size: 20,
-                                ),
-                                onPressed: () => Navigator.push(
+                          // 分享/编辑/删除收进「更多」菜单，避免三个按钮挤占
+                          // 课程表名的横向空间（手机端基本看不到名字）。
+                          trailing: PopupMenuButton<String>(
+                            tooltip: '更多操作',
+                            onSelected: (v) {
+                              if (v == 'share') {
+                                Navigator.push(
                                   context,
                                   MaterialPageRoute(
                                     builder: (_) => ScheduleExportPage(
@@ -136,27 +133,51 @@ class ScheduleListPage extends StatelessWidget {
                                       courses: app.coursesOf(s.id),
                                     ),
                                   ),
-                                ),
-                              ),
-                              IconButton(
-                                tooltip: '编辑',
-                                icon: const Icon(Icons.edit_outlined, size: 20),
-                                onPressed: () => Navigator.push(
+                                );
+                              } else if (v == 'edit') {
+                                Navigator.push(
                                   context,
                                   MaterialPageRoute(
                                     builder: (_) =>
                                         ScheduleFormPage(schedule: s),
                                   ),
+                                );
+                              } else if (v == 'delete') {
+                                confirmDelete(s.id, s.name);
+                              }
+                            },
+                            itemBuilder: (ctx) => [
+                              PopupMenuItem(
+                                value: 'share',
+                                child: Row(
+                                  children: const [
+                                    Icon(Icons.share_outlined, size: 18),
+                                    SizedBox(width: 10),
+                                    Text('分享'),
+                                  ],
                                 ),
                               ),
-                              IconButton(
-                                tooltip: '删除',
-                                icon: const Icon(
-                                  Icons.delete_outline,
-                                  size: 20,
-                                  color: Colors.red,
+                              PopupMenuItem(
+                                value: 'edit',
+                                child: Row(
+                                  children: const [
+                                    Icon(Icons.edit_outlined, size: 18),
+                                    SizedBox(width: 10),
+                                    Text('编辑'),
+                                  ],
                                 ),
-                                onPressed: () => confirmDelete(s.id, s.name),
+                              ),
+                              PopupMenuItem(
+                                value: 'delete',
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.delete_outline,
+                                        size: 18, color: Colors.red),
+                                    const SizedBox(width: 10),
+                                    const Text('删除',
+                                        style: TextStyle(color: Colors.red)),
+                                  ],
+                                ),
                               ),
                             ],
                           ),

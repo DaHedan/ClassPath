@@ -76,8 +76,11 @@ class _HomePageState extends State<HomePage> {
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: Text(s.name,
-                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                    child: Text(
+                      s.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ],
               ),
@@ -90,11 +93,16 @@ class _HomePageState extends State<HomePage> {
             },
             child: Row(
               children: [
-                Icon(Icons.add,
-                    size: 18, color: Theme.of(ctx).colorScheme.primary),
+                Icon(
+                  Icons.add,
+                  size: 18,
+                  color: Theme.of(ctx).colorScheme.primary,
+                ),
                 const SizedBox(width: 10),
-                const Text('新建课程表',
-                    style: TextStyle(fontWeight: FontWeight.w600)),
+                const Text(
+                  '新建课程表',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
               ],
             ),
           ),
@@ -105,11 +113,16 @@ class _HomePageState extends State<HomePage> {
             },
             child: Row(
               children: [
-                Icon(Icons.file_download_outlined,
-                    size: 18, color: Theme.of(ctx).colorScheme.primary),
+                Icon(
+                  Icons.file_download_outlined,
+                  size: 18,
+                  color: Theme.of(ctx).colorScheme.primary,
+                ),
                 const SizedBox(width: 10),
-                const Text('导入课程表',
-                    style: TextStyle(fontWeight: FontWeight.w600)),
+                const Text(
+                  '导入课程表',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
               ],
             ),
           ),
@@ -187,10 +200,14 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _openList() => Navigator.push(
-      context, MaterialPageRoute(builder: (_) => const ScheduleListPage()));
+    context,
+    MaterialPageRoute(builder: (_) => const ScheduleListPage()),
+  );
 
   void _openSettings() => Navigator.push(
-      context, MaterialPageRoute(builder: (_) => const SettingsPage()));
+    context,
+    MaterialPageRoute(builder: (_) => const SettingsPage()),
+  );
 
   // ---------- 构建 ----------
 
@@ -226,16 +243,24 @@ class _HomePageState extends State<HomePage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.calendar_view_week_outlined,
-                size: 64, color: theme.colorScheme.outline),
+            Icon(
+              Icons.calendar_view_week_outlined,
+              size: 64,
+              color: theme.colorScheme.outline,
+            ),
             const SizedBox(height: 16),
-            Text('还没有课程表',
-                style: TextStyle(
-                    fontSize: 16, color: theme.colorScheme.onSurfaceVariant)),
+            Text(
+              '还没有课程表',
+              style: TextStyle(
+                fontSize: 16,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
             const SizedBox(height: 4),
-            Text('创建课程表后即可开始排课',
-                style:
-                    TextStyle(fontSize: 13, color: theme.colorScheme.outline)),
+            Text(
+              '创建课程表后即可开始排课',
+              style: TextStyle(fontSize: 13, color: theme.colorScheme.outline),
+            ),
             const SizedBox(height: 20),
             FilledButton.icon(
               onPressed: () => Navigator.push(
@@ -258,24 +283,29 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildTimetable(
-      BuildContext context, AppState app, Schedule schedule) {
+    BuildContext context,
+    AppState app,
+    Schedule schedule,
+  ) {
     final theme = Theme.of(context);
     final courses = app.coursesOf(schedule.id);
 
     // 考试列表：单周模式只显示所选周的考试，本学期模式显示全部，按日期排序。
-    final examCourses = courses.where((c) {
-      final e = c.exam;
-      if (e == null || e.isEmpty || e.date == null) return false;
-      if (_semesterMode) return true;
-      return ScheduleMath.weekNumberOf(schedule, e.date!) == _week;
-    }).toList()
-      // 考试安排按时间排序：先日期，同一天的再按考试开始时间，早的在上。
-      ..sort((a, b) {
-        final c = a.exam!.date!.compareTo(b.exam!.date!);
-        if (c != 0) return c;
-        return _examStartMinutes(a.exam!)
-            .compareTo(_examStartMinutes(b.exam!));
-      });
+    final examCourses =
+        courses.where((c) {
+            final e = c.exam;
+            if (e == null || e.isEmpty || e.date == null) return false;
+            if (_semesterMode) return true;
+            return ScheduleMath.weekNumberOf(schedule, e.date!) == _week;
+          }).toList()
+          // 考试安排按时间排序：先日期，同一天的再按考试开始时间，早的在上。
+          ..sort((a, b) {
+            final c = a.exam!.date!.compareTo(b.exam!.date!);
+            if (c != 0) return c;
+            return _examStartMinutes(
+              a.exam!,
+            ).compareTo(_examStartMinutes(b.exam!));
+          });
 
     return Scaffold(
       appBar: AppBar(
@@ -314,10 +344,7 @@ class _HomePageState extends State<HomePage> {
               holidays: app.holidays,
             ),
           ),
-          _ExamSection(
-            courses: examCourses,
-            onCourseTap: _openCourseDetail,
-          ),
+          _ExamSection(courses: examCourses, onCourseTap: _openCourseDetail),
         ],
       ),
     );
@@ -336,8 +363,7 @@ class _HomePageState extends State<HomePage> {
               schedule.name,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                  fontSize: 18, fontWeight: FontWeight.w600),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
             ),
           ),
           const Icon(Icons.arrow_drop_down, size: 20),
@@ -377,13 +403,18 @@ class _HomePageState extends State<HomePage> {
               onTap: _switchWeek,
               borderRadius: BorderRadius.circular(8),
               child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.today_outlined,
-                        size: 15, color: theme.colorScheme.primary),
+                    Icon(
+                      Icons.today_outlined,
+                      size: 15,
+                      color: theme.colorScheme.primary,
+                    ),
                     const SizedBox(width: 4),
                     Text(
                       '第$_week周 · ${ScheduleMath.weekRangeText(schedule, _week)}',
@@ -393,8 +424,7 @@ class _HomePageState extends State<HomePage> {
                         color: theme.colorScheme.primary,
                       ),
                     ),
-                    const Icon(Icons.expand_more,
-                        size: 18, color: Colors.grey),
+                    const Icon(Icons.expand_more, size: 18, color: Colors.grey),
                   ],
                 ),
               ),
@@ -435,9 +465,7 @@ class _ExamSection extends StatelessWidget {
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainerLow,
         border: Border(
-          top: BorderSide(
-            color: theme.dividerColor.withValues(alpha: 0.5),
-          ),
+          top: BorderSide(color: theme.dividerColor.withValues(alpha: 0.5)),
         ),
       ),
       child: Column(
@@ -445,8 +473,11 @@ class _ExamSection extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.assignment_outlined,
-                  size: 16, color: theme.colorScheme.primary),
+              Icon(
+                Icons.assignment_outlined,
+                size: 16,
+                color: theme.colorScheme.primary,
+              ),
               const SizedBox(width: 6),
               Text(
                 '考试安排',
@@ -462,17 +493,14 @@ class _ExamSection extends StatelessWidget {
           if (courses.isEmpty)
             Text(
               '暂无考试安排',
-              style: TextStyle(
-                  fontSize: 12, color: theme.colorScheme.outline),
+              style: TextStyle(fontSize: 12, color: theme.colorScheme.outline),
             )
           else
             ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 220),
+              constraints: const BoxConstraints(maxHeight: 150),
               child: SingleChildScrollView(
                 child: Column(
-                  children: [
-                    for (final c in courses) _examCard(theme, c),
-                  ],
+                  children: [for (final c in courses) _examCard(theme, c)],
                 ),
               ),
             ),
@@ -489,7 +517,7 @@ class _ExamSection extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         onTap: () => onCourseTap(c),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           child: Row(
             children: [
               Container(
@@ -508,7 +536,9 @@ class _ExamSection extends StatelessWidget {
                     Text(
                       c.name,
                       style: const TextStyle(
-                          fontSize: 14, fontWeight: FontWeight.w600),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -533,8 +563,7 @@ class _ExamSection extends StatelessWidget {
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right,
-                  size: 20, color: Colors.grey),
+              const Icon(Icons.chevron_right, size: 20, color: Colors.grey),
             ],
           ),
         ),
