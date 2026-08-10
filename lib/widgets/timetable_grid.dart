@@ -385,11 +385,13 @@ class _TimetableGridState extends State<TimetableGrid> {
     final cells = <Widget>[];
     if (widget.schedule.lunch.enabled &&
         widget.schedule.lunch.afterPeriod == period) {
-      cells.add(_mealBar(theme, width, showText ? '午餐 ${widget.schedule.lunch.label}' : null));
+      cells.add(
+          _mealBar(theme, width, showText ? widget.schedule.lunch.label : null));
     }
     if (widget.schedule.dinner.enabled &&
         widget.schedule.dinner.afterPeriod == period) {
-      cells.add(_mealBar(theme, width, showText ? '晚餐 ${widget.schedule.dinner.label}' : null));
+      cells.add(_mealBar(
+          theme, width, showText ? widget.schedule.dinner.label : null));
     }
     return cells;
   }
