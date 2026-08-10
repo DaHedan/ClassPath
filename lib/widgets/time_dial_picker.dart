@@ -32,19 +32,59 @@ class _TimeDialPicker extends StatefulWidget {
   State<_TimeDialPicker> createState() => _TimeDialPickerState();
 }
 
-class _TimeDialPickerState extends State<_TimeDialPicker> {
+class _TimeDialPickerState extends State<_TimeDialPicker>
+    with SingleTickerProviderStateMixin {
   late int _hour = widget.initial.hour;
   late int _minute = widget.initial.minute;
   bool _pickingHour = true;
 
+  // 动画：值变化时指针平滑滑动、选中数字脉冲放大。
+  late final AnimationController _anim = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 280),
+  );
+  late int _lastHour = _hour;
+  late int _lastMinute = _minute;
+  late bool _lastHourMode = _pickingHour;
+
   String get _hh => _hour.toString().padLeft(2, '0');
   String get _mm => _minute.toString().padLeft(2, '0');
+
+  @override
+  void dispose() {
+    _anim.dispose();
+    super.dispose();
+  }
+
+  /// 记录旧值、应用修改并重放过渡动画。
+  /// [animate] 为 false（拖动）时直接跳转到新值，避免指针滞后。
+  void _setValue(VoidCallback change, {bool animate = true}) {
+    setState(() {
+      if (animate) {
+        _lastHour = _hour;
+        _lastMinute = _minute;
+        _lastHourMode = _pickingHour;
+      }
+      change();
+      if (animate) {
+        _anim.forward(from: 0);
+      } else {
+        _lastHour = _hour;
+        _lastMinute = _minute;
+        _lastHourMode = _pickingHour;
+        _anim.value = 1;
+      }
+    });
+  }
 
   /// 根据点击/拖动位置选择小时或分钟。
   /// [center] 为表盘中心（相对手势局部坐标）。
   /// [autoSwitch] 为 true 时（点按），选完小时立即切到分钟。
+  /// [animate] 为 false（拖动）时直接跟随，不做过渡动画。
   void _onDial(Offset local,
-      {required Offset center, bool autoSwitch = false}) {
+      {required Offset center,
+      bool autoSwitch = false,
+      bool animate = true}) {
     final dx = local.dx - center.dx;
     final dy = local.dy - center.dy;
     final r = math.sqrt(dx * dx + dy * dy);
@@ -52,7 +92,7 @@ class _TimeDialPickerState extends State<_TimeDialPicker> {
     var angle = math.atan2(dy, dx) + math.pi / 2; // 顶部为 0
     if (angle < 0) angle += 2 * math.pi;
     if (angle >= 2 * math.pi) angle -= 2 * math.pi;
-    setState(() {
+    _setValue(() {
       if (_pickingHour) {
         final index = (angle / (2 * math.pi / 12)).round() % 12; // 顶部起 0..11
         // 内圈 1-12，顶部为 12；外圈 13-24，顶部为 24（即 0 点）。
@@ -68,7 +108,7 @@ class _TimeDialPickerState extends State<_TimeDialPicker> {
         final index = (angle / (2 * math.pi / 60)).round() % 60;
         _minute = index;
       }
-    });
+    }, animate: animate);
   }
 
   @override
@@ -85,7 +125,7 @@ class _TimeDialPickerState extends State<_TimeDialPicker> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 _modeButton(theme, '时', _pickingHour, () {
-                  setState(() => _pickingHour = true);
+                  _setValue(() => _pickingHour = true);
                 }),
                 const SizedBox(width: 24),
                 Text(
@@ -95,7 +135,7 @@ class _TimeDialPickerState extends State<_TimeDialPicker> {
                 ),
                 const SizedBox(width: 24),
                 _modeButton(theme, '分', !_pickingHour, () {
-                  setState(() => _pickingHour = false);
+                  _setValue(() => _pickingHour = false);
                 }),
               ],
             ),
@@ -108,7 +148,8 @@ class _TimeDialPickerState extends State<_TimeDialPicker> {
                     center: const Offset(_dialSize / 2, _dialSize / 2),
                     autoSwitch: true),
                 onPanUpdate: (d) => _onDial(d.localPosition,
-                    center: const Offset(_dialSize / 2, _dialSize / 2)),
+                    center: const Offset(_dialSize / 2, _dialSize / 2),
+                    animate: false),
                 // 拖动选完小时后（松手/取消）切到分钟。
                 onPanEnd: (_) {
                   if (_pickingHour) setState(() => _pickingHour = false);
@@ -116,13 +157,20 @@ class _TimeDialPickerState extends State<_TimeDialPicker> {
                 onPanCancel: () {
                   if (_pickingHour) setState(() => _pickingHour = false);
                 },
-                child: CustomPaint(
-                  size: const Size(_dialSize, _dialSize),
-                  painter: _DialPainter(
-                    hourMode: _pickingHour,
-                    hour: _hour,
-                    minute: _minute,
-                    scheme: theme.colorScheme,
+                child: AnimatedBuilder(
+                  animation: _anim,
+                  builder: (context, _) => CustomPaint(
+                    size: const Size(_dialSize, _dialSize),
+                    painter: _DialPainter(
+                      hourMode: _pickingHour,
+                      hour: _hour,
+                      minute: _minute,
+                      scheme: theme.colorScheme,
+                      anim: Curves.easeOutCubic.transform(_anim.value),
+                      lastHour: _lastHour,
+                      lastMinute: _lastMinute,
+                      lastHourMode: _lastHourMode,
+                    ),
                   ),
                 ),
               ),
@@ -170,14 +218,38 @@ class _DialPainter extends CustomPainter {
   final int minute;
   final ColorScheme scheme;
 
+  /// 过渡动画进度 0-1（值变化后指针滑动、数字脉冲）。
+  final double anim;
+  final int lastHour;
+  final int lastMinute;
+  final bool lastHourMode;
+
   const _DialPainter({
     required this.hourMode,
     required this.hour,
     required this.minute,
     required this.scheme,
+    required this.anim,
+    required this.lastHour,
+    required this.lastMinute,
+    required this.lastHourMode,
   });
 
   double _angleOf(int index) => index * (2 * math.pi / 12) - math.pi / 2;
+
+  /// 指针端点位置（不含中心小圆）。
+  Offset _handEnd(Offset center, bool mode, int h, int m) {
+    if (mode) {
+      final inner = h >= 1 && h <= 12;
+      final index = inner ? h % 12 : (h == 0 ? 0 : h - 12);
+      return center +
+          Offset(math.cos(_angleOf(index)), math.sin(_angleOf(index))) *
+              (inner ? _innerR : _outerR);
+    }
+    final angle = m * (2 * math.pi / 60) - math.pi / 2;
+    return center +
+        Offset(math.cos(angle), math.sin(angle)) * _outerR;
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -215,11 +287,6 @@ class _DialPainter extends CustomPainter {
                     _outerR,
             selected: selected);
       }
-      // 选中指针：内圈选中到内圈半径，外圈选中到外圈半径。
-      final value = hour;
-      final inner = value >= 1 && value <= 12;
-      final index = inner ? value % 12 : (value == 0 ? 0 : value - 12);
-      _drawHand(canvas, center, _angleOf(index), inner ? _innerR : _outerR);
     } else {
       // 分钟：一圈 60 个刻度，每 5 的倍数显示数字（0,5,...,55），
       // 其余为小刻度点；选中任意分钟都有高亮。
@@ -241,15 +308,29 @@ class _DialPainter extends CustomPainter {
           );
         }
       }
-      _drawHand(canvas, center,
-          minute * (2 * math.pi / 60) - math.pi / 2, _outerR);
     }
+
+    // 指针：从旧位置平滑滑动到新位置（跨模式也平滑过渡）。
+    final from = _handEnd(center, lastHourMode, lastHour, lastMinute);
+    final to = _handEnd(center, hourMode, hour, minute);
+    final end = Offset.lerp(from, to, anim)!;
+    canvas.drawLine(
+      center,
+      end,
+      Paint()
+        ..color = scheme.primary
+        ..strokeWidth = 2
+        ..strokeCap = StrokeCap.round,
+    );
+    canvas.drawCircle(center, 5, Paint()..color = scheme.primary);
   }
 
   void _drawNumber(
       Canvas canvas, String text, Offset pos, {required bool selected}) {
     if (selected) {
-      canvas.drawCircle(pos, _dotR, Paint()..color = scheme.primary);
+      // 选中圆：动画期间轻微放大，形成“按下”脉冲。
+      final r = _dotR * (1 + 0.25 * (1 - anim));
+      canvas.drawCircle(pos, r, Paint()..color = scheme.primary);
     }
     final tp = TextPainter(
       text: TextSpan(
@@ -265,24 +346,14 @@ class _DialPainter extends CustomPainter {
     tp.paint(canvas, pos - Offset(tp.width / 2, tp.height / 2));
   }
 
-  void _drawHand(Canvas canvas, Offset center, double angle, double radius) {
-    final end = center +
-        Offset(math.cos(angle), math.sin(angle)) * (radius - _dotR + 4);
-    canvas.drawLine(
-      center,
-      end,
-      Paint()
-        ..color = scheme.primary
-        ..strokeWidth = 2
-        ..strokeCap = StrokeCap.round,
-    );
-    canvas.drawCircle(center, 5, Paint()..color = scheme.primary);
-  }
-
   @override
   bool shouldRepaint(covariant _DialPainter old) =>
       old.hourMode != hourMode ||
       old.hour != hour ||
       old.minute != minute ||
+      old.anim != anim ||
+      old.lastHour != lastHour ||
+      old.lastMinute != lastMinute ||
+      old.lastHourMode != lastHourMode ||
       old.scheme != scheme;
 }

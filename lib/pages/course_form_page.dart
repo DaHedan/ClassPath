@@ -282,7 +282,7 @@ class _CourseFormPageState extends State<CourseFormPage> {
       ),
     );
     if (result != null) {
-      // 上课周在对话框内设置：未修改时保持 null（全部周）。
+      // 上课周在对话框内设置：新建默认未选择，需手动勾选。
       setState(() => _classTimes.add(result));
     }
   }
@@ -688,7 +688,9 @@ class _CourseFormPageState extends State<CourseFormPage> {
     final loc = ct.location;
     final weekText = ct.weeks == null
         ? '全部周'
-        : ScheduleMath.weeksToText(ct.weeks!);
+        : ct.weeks!.isEmpty
+            ? '未选择'
+            : ScheduleMath.weeksToText(ct.weeks!);
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: Column(
@@ -785,8 +787,8 @@ class _ClassTimeDialogState extends State<_ClassTimeDialog> {
     _endPeriod = i?.endPeriod ?? 1;
     _start = _parseTime(i?.start ?? '08:00');
     _end = _parseTime(i?.end ?? '09:40');
-    // 上课周：编辑时保留原设置；新建默认 null（全部周）。
-    _weeks = i?.weeks;
+    // 上课周：编辑时保留原设置；新建默认未选择，由用户手动勾选。
+    _weeks = i?.weeks ?? [];
     final loc = i?.location;
     final buildings = widget.schedule.buildings;
     // 楼宇默认顺序：该节课自带地点楼宇 → 课程总体楼宇 → 第一栋楼。
@@ -921,6 +923,10 @@ class _ClassTimeDialogState extends State<_ClassTimeDialog> {
   void _save() {
     if (_min(_end) <= _min(_start)) {
       _snack('下课时间必须晚于上课时间');
+      return;
+    }
+    if (_weeks == null || _weeks!.isEmpty) {
+      _snack('请选择上课周');
       return;
     }
     final room = _roomCtrl.text.trim();
@@ -1104,7 +1110,9 @@ class _ClassTimeDialogState extends State<_ClassTimeDialog> {
                 subtitle: Text(
                   _weeks == null
                       ? '全部周'
-                      : ScheduleMath.weeksToText(_weeks!),
+                      : _weeks!.isEmpty
+                          ? '未选择'
+                          : ScheduleMath.weeksToText(_weeks!),
                   style: const TextStyle(fontSize: 13),
                 ),
                 trailing: TextButton(
