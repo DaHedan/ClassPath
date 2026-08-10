@@ -6,6 +6,7 @@ import '../models/schedule.dart';
 import '../services/color_generator.dart';
 import '../services/schedule_math.dart';
 import '../state/app_state.dart';
+import '../widgets/time_dial_picker.dart';
 
 /// 课程表单页：编号、名称、教师、上课周、上课时间（可多组）、
 /// 上课地点（总体 + 单节覆盖）、颜色、提醒、考试信息、备注。
@@ -409,7 +410,7 @@ class _CourseFormPageState extends State<CourseFormPage> {
       '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
 
   Future<void> _pickExamStart() async {
-    final t = await showTimePicker(
+    final t = await showClassPathTimePicker(
       context: context,
       initialTime: _examStart ?? const TimeOfDay(hour: 9, minute: 0),
     );
@@ -417,7 +418,7 @@ class _CourseFormPageState extends State<CourseFormPage> {
   }
 
   Future<void> _pickExamEnd() async {
-    final t = await showTimePicker(
+    final t = await showClassPathTimePicker(
       context: context,
       initialTime: _examEnd ?? const TimeOfDay(hour: 11, minute: 0),
     );
@@ -902,7 +903,7 @@ class _ClassTimeDialogState extends State<_ClassTimeDialog> {
         ..showSnackBar(SnackBar(content: Text(msg)));
 
   Future<void> _pickTime(bool isStart) async {
-    final t = await showTimePicker(
+    final t = await showClassPathTimePicker(
       context: context,
       initialTime: isStart ? _start : _end,
     );

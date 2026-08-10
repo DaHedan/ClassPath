@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/schedule.dart';
+import '../widgets/time_dial_picker.dart';
 
 /// 楼宇编辑页：设置楼宇名称与节次时间段，支持从其他楼宇复制时间段。
 class BuildingEditPage extends StatefulWidget {
@@ -266,7 +267,7 @@ class _PeriodTimeDialogState extends State<_PeriodTimeDialog> {
             title: const Text('开始时间'),
             trailing: Text(_start == null ? '选择时间' : _fmt(_start!)),
             onTap: () async {
-              final t = await showTimePicker(
+              final t = await showClassPathTimePicker(
                   context: context, initialTime: _start ?? const TimeOfDay(hour: 8, minute: 0));
               if (t != null) setState(() => _start = t);
             },
@@ -276,7 +277,7 @@ class _PeriodTimeDialogState extends State<_PeriodTimeDialog> {
             title: const Text('结束时间'),
             trailing: Text(_end == null ? '选择时间' : _fmt(_end!)),
             onTap: () async {
-              final t = await showTimePicker(
+              final t = await showClassPathTimePicker(
                   context: context, initialTime: _end ?? const TimeOfDay(hour: 9, minute: 0));
               if (t != null) setState(() => _end = t);
             },
