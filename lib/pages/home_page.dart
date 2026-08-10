@@ -245,6 +245,12 @@ class _HomePageState extends State<HomePage> {
               icon: const Icon(Icons.add),
               label: const Text('添加课程表'),
             ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: _importSchedule,
+              icon: const Icon(Icons.file_download_outlined),
+              label: const Text('导入课程表'),
+            ),
           ],
         ),
       ),

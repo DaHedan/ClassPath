@@ -8,6 +8,7 @@ import '../state/app_state.dart';
 import 'course_detail_page.dart';
 import 'schedule_export_page.dart';
 import 'schedule_form_page.dart';
+import 'schedule_import_page.dart';
 import 'settings_page.dart';
 
 /// 课程表管理页（主页右上角菜单进入）：
@@ -54,8 +55,24 @@ class ScheduleListPage extends StatelessWidget {
       ),
       body: app.schedules.isEmpty
           ? Center(
-              child: Text('还没有课程表，点击下方按钮创建',
-                  style: TextStyle(color: Theme.of(context).colorScheme.outline)),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('还没有课程表，点击下方按钮新建或导入',
+                      style: TextStyle(
+                          color: Theme.of(context).colorScheme.outline)),
+                  const SizedBox(height: 16),
+                  OutlinedButton.icon(
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const ScheduleImportPage()),
+                    ),
+                    icon: const Icon(Icons.file_download_outlined),
+                    label: const Text('导入课程表'),
+                  ),
+                ],
+              ),
             )
           : ReorderableListView.builder(
               // 底部留出空间给「新建课程表」FAB。
