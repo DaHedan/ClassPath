@@ -114,6 +114,17 @@ class AppState extends ChangeNotifier {
     _sync();
   }
 
+  /// 调整课程表顺序（ReorderableListView 传入的 oldIndex/newIndex）。
+  Future<void> reorderSchedules(int oldIndex, int newIndex) async {
+    if (newIndex > oldIndex) newIndex--;
+    if (oldIndex < 0 || oldIndex >= schedules.length) return;
+    if (newIndex < 0 || newIndex >= schedules.length) return;
+    final s = schedules.removeAt(oldIndex);
+    schedules.insert(newIndex, s);
+    await _save();
+    notifyListeners();
+  }
+
   // ---------- 课程 ----------
 
   Future<void> addCourse(Course c) async {
@@ -138,6 +149,23 @@ class AppState extends ChangeNotifier {
     await _save();
     notifyListeners();
     _sync();
+  }
+
+  /// 调整某课程表下课程的顺序（在全局课程列表中原地移动，保持结构）。
+  Future<void> reorderCourses(
+      String scheduleId, int oldIndex, int newIndex) async {
+    if (newIndex > oldIndex) newIndex--;
+    final items = coursesOf(scheduleId);
+    if (oldIndex < 0 || oldIndex >= items.length) return;
+    if (newIndex < 0 || newIndex >= items.length) return;
+    final moving = items[oldIndex];
+    final from = courses.indexOf(moving);
+    final to = courses.indexOf(items[newIndex]);
+    courses.removeAt(from);
+    // 移除后目标下标可能前移一位。
+    courses.insert(to > from ? to - 1 : to, moving);
+    await _save();
+    notifyListeners();
   }
 
   // ---------- 设置 ----------

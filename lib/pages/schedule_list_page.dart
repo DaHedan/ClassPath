@@ -56,60 +56,82 @@ class ScheduleListPage extends StatelessWidget {
               child: Text('还没有课程表，点击下方按钮创建',
                   style: TextStyle(color: Theme.of(context).colorScheme.outline)),
             )
-          : ListView.builder(
+          : ReorderableListView.builder(
               // 底部留出空间给「新建课程表」FAB。
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
-              itemCount: app.schedules.length + 1,
+              itemCount: app.schedules.length,
+              // 拖动拇指自绘在每行前，footer（课程面板）不参与排序。
+              buildDefaultDragHandles: false,
+              onReorder: (oldIndex, newIndex) =>
+                  app.reorderSchedules(oldIndex, newIndex),
+              footer: Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: _ActiveCoursesPanel(
+                  schedule: app.activeSchedule!,
+                  courses: app.coursesOf(app.activeSchedule!.id),
+                ),
+              ),
               itemBuilder: (context, index) {
-                // 最后一个条目：选中课程表的课程面板。
-                if (index == app.schedules.length) {
-                  return _ActiveCoursesPanel(
-                    schedule: app.activeSchedule!,
-                    courses: app.coursesOf(app.activeSchedule!.id),
-                  );
-                }
                 final s = app.schedules[index];
                 return Card(
+                  key: ValueKey(s.id),
                   margin: const EdgeInsets.only(bottom: 8),
-                  child: ListTile(
-                    leading: Radio<String>(
-                      value: s.id,
-                      groupValue: activeId,
-                      onChanged: (_) => app.setActiveSchedule(s.id),
-                    ),
-                    title: Text(s.name,
-                        maxLines: 1, overflow: TextOverflow.ellipsis),
-                    subtitle: Text(
-                      '${s.info} · ${app.coursesOf(s.id).length}门课',
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                    isThreeLine: false,
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) => ScheduleFormPage(schedule: s)),
-                    ),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          tooltip: '编辑',
-                          icon: const Icon(Icons.edit_outlined, size: 20),
-                          onPressed: () => Navigator.push(
+                  child: Row(
+                    children: [
+                      // 拖动拇指：按住即可调整课程表顺序。
+                      ReorderableDragStartListener(
+                        index: index,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          child: Icon(Icons.drag_handle,
+                              size: 20, color: Colors.grey),
+                        ),
+                      ),
+                      Expanded(
+                        child: ListTile(
+                          leading: Radio<String>(
+                            value: s.id,
+                            groupValue: activeId,
+                            onChanged: (_) => app.setActiveSchedule(s.id),
+                          ),
+                          title: Text(s.name,
+                              maxLines: 1, overflow: TextOverflow.ellipsis),
+                          subtitle: Text(
+                            '${s.info} · ${app.coursesOf(s.id).length}门课',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          isThreeLine: false,
+                          onTap: () => Navigator.push(
                             context,
                             MaterialPageRoute(
                                 builder: (_) =>
                                     ScheduleFormPage(schedule: s)),
                           ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                tooltip: '编辑',
+                                icon:
+                                    const Icon(Icons.edit_outlined, size: 20),
+                                onPressed: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                      builder: (_) =>
+                                          ScheduleFormPage(schedule: s)),
+                                ),
+                              ),
+                              IconButton(
+                                tooltip: '删除',
+                                icon: const Icon(Icons.delete_outline,
+                                    size: 20, color: Colors.red),
+                                onPressed: () => confirmDelete(s.id, s.name),
+                              ),
+                            ],
+                          ),
                         ),
-                        IconButton(
-                          tooltip: '删除',
-                          icon: const Icon(Icons.delete_outline,
-                              size: 20, color: Colors.red),
-                          onPressed: () => confirmDelete(s.id, s.name),
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 );
               },
@@ -207,7 +229,34 @@ class _ActiveCoursesPanel extends StatelessWidget {
                 ),
               )
             else
-              for (final c in courses) _courseRow(context, c),
+              ReorderableListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                // 拖动拇指自绘在每行前。
+                buildDefaultDragHandles: false,
+                itemCount: courses.length,
+                onReorder: (oldIndex, newIndex) => context
+                    .read<AppState>()
+                    .reorderCourses(schedule.id, oldIndex, newIndex),
+                itemBuilder: (context, index) {
+                  final c = courses[index];
+                  return Row(
+                    key: ValueKey(c.uid),
+                    children: [
+                      // 拖动拇指：按住即可调整课程顺序。
+                      ReorderableDragStartListener(
+                        index: index,
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: Icon(Icons.drag_handle,
+                              size: 18, color: Colors.grey),
+                        ),
+                      ),
+                      Expanded(child: _courseRow(context, c)),
+                    ],
+                  );
+                },
+              ),
           ],
         ),
       ),
