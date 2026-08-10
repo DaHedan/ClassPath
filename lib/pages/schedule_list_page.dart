@@ -98,6 +98,9 @@ class ScheduleListPage extends StatelessWidget {
                       ),
                       Expanded(
                         child: ListTile(
+                          // 去掉左侧默认内边距，让选中圆点紧贴拖动拇指；
+                          // 保留右侧内边距，菜单按钮不贴卡片边缘。
+                          contentPadding: const EdgeInsets.only(right: 16),
                           leading: Radio<String>(
                             value: s.id,
                             groupValue: activeId,

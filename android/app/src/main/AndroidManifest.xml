@@ -2,7 +2,7 @@
     <!-- 摄像头：用于扫描课程表分享二维码 -->
     <uses-permission android:name="android.permission.CAMERA"/>
     <application
-        android:label="classpath"
+        android:label="课途"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
