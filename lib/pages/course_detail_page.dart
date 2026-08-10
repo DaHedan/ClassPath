@@ -137,7 +137,10 @@ class CourseDetailPage extends StatelessWidget {
                 '${ct.weekdayLabel}${ct.periodLabel}：${ct.location!.display}',
           ]),
           const SizedBox(height: 8),
-          _infoCard(theme, '上课周', [ScheduleMath.weeksToText(c.weeks)]),
+          _infoCard(theme, '上课周', [
+            for (final ct in c.classTimes)
+              '${ct.weekdayLabel}${ct.periodLabel}：${ct.weeks == null ? '全部周' : ScheduleMath.weeksToText(ct.weeks!)}',
+          ]),
           const SizedBox(height: 8),
           _infoCard(theme, '提醒', [c.remindText]),
           if (c.exam != null && !c.exam!.isEmpty) ...[

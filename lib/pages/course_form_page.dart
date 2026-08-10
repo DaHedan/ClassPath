@@ -29,7 +29,6 @@ class _CourseFormPageState extends State<CourseFormPage> {
   final _noteCtrl = TextEditingController();
 
   late String _courseId;
-  late List<int> _weeks;
   late List<ClassTime> _classTimes;
   late int _buildingIndex; // 总体地点楼宇下标，-1 表示不设置
   late int _colorValue;
@@ -48,7 +47,6 @@ class _CourseFormPageState extends State<CourseFormPage> {
     _idCtrl.text = _courseId;
     _nameCtrl.text = c?.name ?? '';
     _teacherCtrl.text = c?.teacher ?? '';
-    _weeks = c == null ? <int>[] : List.of(c.weeks);
     _classTimes = c == null
         ? <ClassTime>[]
         : c.classTimes.map((t) => t.copy()).toList();
@@ -117,6 +115,11 @@ class _CourseFormPageState extends State<CourseFormPage> {
     return false;
   }
 
+  /// 某个上课时间的上课周集合；null（全部周）展开为 1..totalWeeks。
+  List<int> _weeksOf(ClassTime ct) => ct.weeks == null
+      ? [for (var i = 1; i <= schedule.totalWeeks; i++) i]
+      : ct.weeks!;
+
   /// 时间冲突检查：同课程表内，同一（星期,节次段）且上课周有交集即冲突。
   List<String> _findConflicts(AppState app) {
     final result = <String>{};
@@ -130,7 +133,8 @@ class _CourseFormPageState extends State<CourseFormPage> {
     for (final ct in _classTimes) {
       for (final other in others) {
         for (final oct in other.classTimes) {
-          if (overlaps(ct, oct) && _weeksOverlap(_weeks, other.weeks)) {
+          if (overlaps(ct, oct) &&
+              _weeksOverlap(_weeksOf(ct), _weeksOf(oct))) {
             result.add(
                 '与「${other.name}」${ct.weekdayLabel}${ct.periodLabel}上课周重叠');
           }
@@ -141,8 +145,9 @@ class _CourseFormPageState extends State<CourseFormPage> {
       for (var j = i + 1; j < _classTimes.length; j++) {
         final a = _classTimes[i];
         final b = _classTimes[j];
-        if (overlaps(a, b)) {
-          result.add('「${a.weekdayLabel}${a.periodLabel}」与「${b.periodLabel}」重叠');
+        if (overlaps(a, b) && _weeksOverlap(_weeksOf(a), _weeksOf(b))) {
+          result.add(
+              '「${a.weekdayLabel}${a.periodLabel}」与「${b.weekdayLabel}${b.periodLabel}」上课周重叠');
         }
       }
     }
@@ -167,9 +172,11 @@ class _CourseFormPageState extends State<CourseFormPage> {
       _snack('编号「$idText」已被其他课程使用');
       return;
     }
-    if (_weeks.isEmpty) {
-      _snack('请选择上课周');
-      return;
+    for (final ct in _classTimes) {
+      if (ct.weeks != null && ct.weeks!.isEmpty) {
+        _snack('「${ct.weekdayLabel}${ct.periodLabel}」请选择上课周');
+        return;
+      }
     }
     if (_classTimes.isEmpty) {
       _snack('请至少添加一组上课时间');
@@ -234,7 +241,6 @@ class _CourseFormPageState extends State<CourseFormPage> {
       name: name,
       teacher:
           _teacherCtrl.text.trim().isEmpty ? null : _teacherCtrl.text.trim(),
-      weeks: List.of(_weeks),
       classTimes: _classTimes.map((t) => t.copy()).toList(),
       location: location,
       colorValue: _colorValue,
@@ -258,17 +264,6 @@ class _CourseFormPageState extends State<CourseFormPage> {
 
   // ---------- 各字段的编辑交互 ----------
 
-  Future<void> _pickWeeks() async {
-    final result = await showDialog<List<int>>(
-      context: context,
-      builder: (_) => _WeeksMultiDialog(
-        totalWeeks: schedule.totalWeeks,
-        current: List.of(_weeks),
-      ),
-    );
-    if (result != null) setState(() => _weeks = result);
-  }
-
   Future<void> _pickColor() async {
     final result = await showDialog<int>(
       context: context,
@@ -285,7 +280,10 @@ class _CourseFormPageState extends State<CourseFormPage> {
         defaultBuildingIndex: _buildingIndex,
       ),
     );
-    if (result != null) setState(() => _classTimes.add(result));
+    if (result != null) {
+      // 上课周在对话框内设置：未修改时保持 null（全部周）。
+      setState(() => _classTimes.add(result));
+    }
   }
 
   Future<void> _editClassTime(int index) async {
@@ -297,7 +295,9 @@ class _CourseFormPageState extends State<CourseFormPage> {
         defaultBuildingIndex: _buildingIndex,
       ),
     );
-    if (result != null) setState(() => _classTimes[index] = result);
+    if (result != null) {
+      setState(() => _classTimes[index] = result);
+    }
   }
 
   static const _remindPresets = <int?>[5, 10, 15, 30, 60, 120, 1440];
@@ -476,21 +476,6 @@ class _CourseFormPageState extends State<CourseFormPage> {
             ),
           ),
           const SizedBox(height: 16),
-          // 上课周
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('上课周 *'),
-            subtitle: Text(
-              _weeks.isEmpty
-                  ? '请选择上课的周次'
-                  : ScheduleMath.weeksToText(_weeks),
-              style: TextStyle(
-                color: _weeks.isEmpty ? theme.colorScheme.outline : null,
-              ),
-            ),
-            trailing: const Icon(Icons.expand_more),
-            onTap: _pickWeeks,
-          ),
           // 颜色
           ListTile(
             contentPadding: EdgeInsets.zero,
@@ -700,32 +685,57 @@ class _CourseFormPageState extends State<CourseFormPage> {
 
   Widget _classTimeCard(ThemeData theme, ClassTime ct, int index) {
     final loc = ct.location;
+    final weekText = ct.weeks == null
+        ? '全部周'
+        : ScheduleMath.weeksToText(ct.weeks!);
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        title: Text(
-          '${ct.weekdayLabel} ${ct.periodLabel}  ${ct.start}-${ct.end}',
-          style: const TextStyle(fontSize: 14),
-        ),
-        subtitle: Text(
-          loc == null || loc.isEmpty ? '使用总体地点' : '地点：${loc.display}',
-          style: const TextStyle(fontSize: 11),
-        ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              tooltip: '编辑',
-              icon: const Icon(Icons.edit_outlined, size: 20),
-              onPressed: () => _editClassTime(index),
+      child: Column(
+        children: [
+          ListTile(
+            title: Text(
+              '${ct.weekdayLabel} ${ct.periodLabel}  ${ct.start}-${ct.end}',
+              style: const TextStyle(fontSize: 14),
             ),
-            IconButton(
-              tooltip: '删除',
-              icon: const Icon(Icons.delete_outline, size: 20),
-              onPressed: () => setState(() => _classTimes.removeAt(index)),
+            subtitle: Text(
+              loc == null || loc.isEmpty ? '使用总体地点' : '地点：${loc.display}',
+              style: const TextStyle(fontSize: 11),
             ),
-          ],
-        ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  tooltip: '编辑',
+                  icon: const Icon(Icons.edit_outlined, size: 20),
+                  onPressed: () => _editClassTime(index),
+                ),
+                IconButton(
+                  tooltip: '删除',
+                  icon: const Icon(Icons.delete_outline, size: 20),
+                  onPressed: () => setState(() => _classTimes.removeAt(index)),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Row(
+              children: [
+                Icon(Icons.event_repeat_outlined,
+                    size: 14, color: theme.colorScheme.outline),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    '上课周：$weekText',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -760,6 +770,9 @@ class _ClassTimeDialogState extends State<_ClassTimeDialog> {
   bool _customLocation = false; // 为本节单独设置地点
   final _roomCtrl = TextEditingController();
 
+  /// 上课周（null = 全部周）。
+  List<int>? _weeks;
+
   static const _weekdayNames = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 
   @override
@@ -771,6 +784,8 @@ class _ClassTimeDialogState extends State<_ClassTimeDialog> {
     _endPeriod = i?.endPeriod ?? 1;
     _start = _parseTime(i?.start ?? '08:00');
     _end = _parseTime(i?.end ?? '09:40');
+    // 上课周：编辑时保留原设置；新建默认 null（全部周）。
+    _weeks = i?.weeks;
     final loc = i?.location;
     final buildings = widget.schedule.buildings;
     // 楼宇默认顺序：该节课自带地点楼宇 → 课程总体楼宇 → 第一栋楼。
@@ -923,8 +938,27 @@ class _ClassTimeDialogState extends State<_ClassTimeDialog> {
         start: _fmt(_start),
         end: _fmt(_end),
         location: loc,
+        weeks: _weeks,
       ),
     );
+  }
+
+  Future<void> _pickWeeks() async {
+    // null（全部周）在对话框里展开为全选。
+    final result = await showDialog<List<int>>(
+      context: context,
+      builder: (_) => _WeeksMultiDialog(
+        totalWeeks: widget.schedule.totalWeeks,
+        current: _weeks ??
+            [for (var i = 1; i <= widget.schedule.totalWeeks; i++) i],
+      ),
+    );
+    if (result != null) {
+      setState(() {
+        // 选满全部周时归一化为 null（全部周），避免冗余数据。
+        _weeks = result.length >= widget.schedule.totalWeeks ? null : result;
+      });
+    }
   }
 
   @override
@@ -1061,6 +1095,22 @@ class _ClassTimeDialogState extends State<_ClassTimeDialog> {
                   ),
                 ],
               ),
+              const SizedBox(height: 8),
+              // 上课周：null 表示全部周。
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('上课周'),
+                subtitle: Text(
+                  _weeks == null
+                      ? '全部周'
+                      : ScheduleMath.weeksToText(_weeks!),
+                  style: const TextStyle(fontSize: 13),
+                ),
+                trailing: TextButton(
+                  onPressed: _pickWeeks,
+                  child: const Text('选择'),
+                ),
+              ),
               const SizedBox(height: 4),
               Text(
                 '节次段按楼宇时间段自动带出时间：未单独设置地点时用总体楼宇，可再手动微调',
@@ -1093,6 +1143,54 @@ class _WeeksMultiDialog extends StatefulWidget {
 
 class _WeeksMultiDialogState extends State<_WeeksMultiDialog> {
   late final Set<int> _selected = Set.of(widget.current);
+  final ScrollController _scroll = ScrollController();
+
+  static const int _cols = 5;
+  static const double _spacing = 6;
+
+  // 拖动多选状态：按下时记录起点格子与统一状态（选/取消），
+  // 移动超过点击容差后视为拖动，滑过的格子都应用该状态；点按由 onTap 切换。
+  int? _downWeek;
+  bool? _dragValue;
+  Offset? _downPos;
+  bool _dragging = false;
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _setAll(Iterable<int> weeks) => setState(() {
+        _selected
+          ..clear()
+          ..addAll(weeks);
+      });
+
+  /// 把 Listener 局部坐标换算为周次；无效位置返回 -1。
+  int _weekAt(Offset local) {
+    // 格子尺寸：5 列撑满 320 宽，每格约 59.2（间距 6）。
+    final cell = (320 - _spacing * (_cols - 1)) / _cols;
+    final x = local.dx;
+    final y = local.dy + _scroll.offset; // 滚动后内容上移，补回偏移量
+    if (x < 0 || y < 0) return -1;
+    final col = (x / (cell + _spacing)).floor();
+    final row = (y / (cell + _spacing)).floor();
+    final index = row * _cols + col;
+    return (index >= 0 && index < widget.totalWeeks) ? index + 1 : -1;
+  }
+
+  void _applyDrag(Offset local) {
+    final week = _weekAt(local);
+    if (week < 0) return;
+    setState(() {
+      if (_dragValue == true) {
+        _selected.add(week);
+      } else {
+        _selected.remove(week);
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1100,65 +1198,88 @@ class _WeeksMultiDialogState extends State<_WeeksMultiDialog> {
       title: const Text('选择上课周'),
       content: SizedBox(
         width: 320,
-        height: 360,
-        child: GridView.builder(
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 5,
-            mainAxisSpacing: 6,
-            crossAxisSpacing: 6,
-          ),
-          itemCount: widget.totalWeeks,
-          itemBuilder: (context, index) {
-            final w = index + 1;
-            final selected = _selected.contains(w);
-            final scheme = Theme.of(context).colorScheme;
-            return InkWell(
-              borderRadius: BorderRadius.circular(8),
-              onTap: () => setState(() {
-                if (selected) {
-                  _selected.remove(w);
-                } else {
-                  _selected.add(w);
-                }
-              }),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 120),
-                decoration: BoxDecoration(
-                  color: selected
-                      ? scheme.primary
-                      : scheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color:
-                        selected ? scheme.primary : scheme.outlineVariant,
-                    width: selected ? 1.5 : 1,
-                  ),
+        height: 400,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // 快捷操作：全选 / 清空 / 单周 / 双周
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                TextButton(
+                  onPressed: () => _setAll(
+                      [for (var i = 1; i <= widget.totalWeeks; i++) i]),
+                  child: const Text('全选'),
                 ),
-                alignment: Alignment.center,
-                child: Text(
-                  '$w',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight:
-                        selected ? FontWeight.w700 : FontWeight.w500,
-                    color: selected ? scheme.onPrimary : scheme.onSurface,
+                TextButton(
+                  onPressed: () => setState(_selected.clear),
+                  child: const Text('清空'),
+                ),
+                TextButton(
+                  onPressed: () => _setAll(
+                      [for (var i = 1; i <= widget.totalWeeks; i += 2) i]),
+                  child: const Text('单周'),
+                ),
+                TextButton(
+                  onPressed: () => _setAll(
+                      [for (var i = 2; i <= widget.totalWeeks; i += 2) i]),
+                  child: const Text('双周'),
+                ),
+              ],
+            ),
+            const Divider(height: 8),
+            Expanded(
+              // 拖动滑过格子即可连续多选（配合点选使用）。
+              child: Listener(
+                onPointerDown: (e) {
+                  final w = _weekAt(e.localPosition);
+                  _downWeek = w < 0 ? null : w;
+                  _downPos = e.localPosition;
+                  _dragValue = w < 0 ? null : !_selected.contains(w);
+                  _dragging = false;
+                },
+                onPointerMove: (e) {
+                  if (_downWeek == null) return;
+                  // 未超过点击容差前仍是点按，交给 InkWell 的 onTap。
+                  if (!_dragging) {
+                    if ((e.localPosition - _downPos!).distance < 18) return;
+                    _dragging = true;
+                  }
+                  _applyDrag(e.localPosition);
+                },
+                onPointerUp: (_) {
+                  _downWeek = null;
+                  _dragValue = null;
+                  _downPos = null;
+                  _dragging = false;
+                },
+                onPointerCancel: (_) {
+                  _downWeek = null;
+                  _dragValue = null;
+                  _downPos = null;
+                  _dragging = false;
+                },
+                child: SingleChildScrollView(
+                  controller: _scroll,
+                  child: GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: _cols,
+                      mainAxisSpacing: _spacing,
+                      crossAxisSpacing: _spacing,
+                    ),
+                    itemCount: widget.totalWeeks,
+                    itemBuilder: (context, index) => _cell(index),
                   ),
                 ),
               ),
-            );
-          },
+            ),
+          ],
         ),
       ),
       actions: [
-        TextButton(
-          onPressed: () => setState(() => _selected.addAll(
-              [for (var i = 1; i <= widget.totalWeeks; i++) i])),
-          child: const Text('全选'),
-        ),
-        TextButton(
-          onPressed: () => setState(() => _selected.clear()),
-          child: const Text('清空'),
-        ),
         TextButton(
             onPressed: () => Navigator.pop(context), child: const Text('取消')),
         FilledButton(
@@ -1167,6 +1288,46 @@ class _WeeksMultiDialogState extends State<_WeeksMultiDialog> {
           child: const Text('确定'),
         ),
       ],
+    );
+  }
+
+  Widget _cell(int index) {
+    final w = index + 1;
+    final selected = _selected.contains(w);
+    final scheme = Theme.of(context).colorScheme;
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: () => setState(() {
+        if (selected) {
+          _selected.remove(w);
+        } else {
+          _selected.add(w);
+        }
+      }),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        decoration: BoxDecoration(
+          color: selected
+              ? scheme.primary
+              : scheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color:
+                selected ? scheme.primary : scheme.outlineVariant,
+            width: selected ? 1.5 : 1,
+          ),
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          '$w',
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight:
+                selected ? FontWeight.w700 : FontWeight.w500,
+            color: selected ? scheme.onPrimary : scheme.onSurface,
+          ),
+        ),
+      ),
     );
   }
 }

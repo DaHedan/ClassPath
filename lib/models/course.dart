@@ -27,7 +27,8 @@ class CourseLocation {
   Map<String, dynamic> toJson() => {'building': building, 'room': room};
 }
 
-/// 上课时间：星期几 + 节次段（如第1-3节）+ 上课时间 + 下课时间，可为该节课单独设置地点。
+/// 上课时间：星期几 + 节次段（如第1-3节）+ 上课时间 + 下课时间，
+/// 可为该节课单独设置地点；上课周也在此单独设置（null 表示全部周）。
 class ClassTime {
   /// 1=周一 ... 7=周日。
   int weekday;
@@ -43,6 +44,9 @@ class ClassTime {
   /// 单节课的地点覆盖，为空则使用课程总体地点。
   CourseLocation? location;
 
+  /// 上课周（1-based）；null 表示全部周都上（旧数据/全选）。
+  List<int>? weeks;
+
   ClassTime({
     required this.weekday,
     required this.startPeriod,
@@ -50,6 +54,7 @@ class ClassTime {
     required this.start,
     required this.end,
     this.location,
+    this.weeks,
   });
 
   String get weekdayLabel =>
@@ -69,6 +74,7 @@ class ClassTime {
         start: start,
         end: end,
         location: location?.copy(),
+        weeks: weeks == null ? null : List.of(weeks!),
       );
 
   factory ClassTime.fromJson(Map<String, dynamic> json) {
@@ -85,6 +91,9 @@ class ClassTime {
           ? null
           : CourseLocation.fromJson(
               (json['location'] as Map).cast<String, dynamic>()),
+      weeks: json['weeks'] == null
+          ? null
+          : (json['weeks'] as List).cast<int>(),
     );
   }
 
@@ -95,6 +104,7 @@ class ClassTime {
         'start': start,
         'end': end,
         'location': location?.toJson(),
+        'weeks': weeks,
       };
 }
 
@@ -147,10 +157,7 @@ class Course {
   /// 教师（选填）。
   String? teacher;
 
-  /// 上课周（1-based，必选，可多个）。
-  List<int> weeks;
-
-  /// 上课时间组，至少一组。
+  /// 上课时间组，至少一组；每组的 [ClassTime.weeks] 单独决定上课周。
   List<ClassTime> classTimes;
 
   /// 总体上课地点（必填），可为某节课单独覆盖。
@@ -174,7 +181,6 @@ class Course {
     required this.id,
     required this.name,
     this.teacher,
-    List<int>? weeks,
     List<ClassTime>? classTimes,
     CourseLocation? location,
     int? colorValue,
@@ -182,7 +188,6 @@ class Course {
     this.exam,
     this.note,
   })  : uid = uid ?? genId(),
-        weeks = weeks ?? [],
         classTimes = classTimes ?? [],
         location = location ?? CourseLocation(),
         colorValue = colorValue ?? 0xFF7FA8E0;
@@ -201,7 +206,6 @@ class Course {
         id: id,
         name: name,
         teacher: teacher,
-        weeks: List.of(weeks),
         classTimes: classTimes.map((c) => c.copy()).toList(),
         location: location.copy(),
         colorValue: colorValue,
@@ -210,27 +214,38 @@ class Course {
         note: note,
       );
 
-  factory Course.fromJson(Map<String, dynamic> json) => Course(
-        uid: json['uid'] as String? ?? genId(),
-        scheduleId: json['scheduleId'] as String,
-        id: json['id'] as String,
-        name: json['name'] as String,
-        teacher: json['teacher'] as String?,
-        weeks: (json['weeks'] as List? ?? []).cast<int>(),
-        classTimes: (json['classTimes'] as List? ?? [])
-            .map((e) => ClassTime.fromJson((e as Map).cast<String, dynamic>()))
-            .toList(),
-        location: json['location'] == null
-            ? CourseLocation()
-            : CourseLocation.fromJson(
-                (json['location'] as Map).cast<String, dynamic>()),
-        colorValue: json['colorValue'] as int? ?? 0xFF7FA8E0,
-        remindMinutes: json['remindMinutes'] as int?,
-        exam: json['exam'] == null
-            ? null
-            : ExamInfo.fromJson((json['exam'] as Map).cast<String, dynamic>()),
-        note: json['note'] as String?,
-      );
+  factory Course.fromJson(Map<String, dynamic> json) {
+    // 旧数据迁移：以前上课周是课程级的，迁移到每个上课时间上；
+    // 无课程级数据时 weeks 保持 null（表示全部周）。
+    final legacyWeeks = (json['weeks'] as List? ?? []).cast<int>();
+    return Course(
+      uid: json['uid'] as String? ?? genId(),
+      scheduleId: json['scheduleId'] as String,
+      id: json['id'] as String,
+      name: json['name'] as String,
+      teacher: json['teacher'] as String?,
+      classTimes: (json['classTimes'] as List? ?? [])
+          .map((e) {
+            final ct =
+                ClassTime.fromJson((e as Map).cast<String, dynamic>());
+            if (ct.weeks == null && legacyWeeks.isNotEmpty) {
+              return ct.copy()..weeks = List.of(legacyWeeks);
+            }
+            return ct;
+          })
+          .toList(),
+      location: json['location'] == null
+          ? CourseLocation()
+          : CourseLocation.fromJson(
+              (json['location'] as Map).cast<String, dynamic>()),
+      colorValue: json['colorValue'] as int? ?? 0xFF7FA8E0,
+      remindMinutes: json['remindMinutes'] as int?,
+      exam: json['exam'] == null
+          ? null
+          : ExamInfo.fromJson((json['exam'] as Map).cast<String, dynamic>()),
+      note: json['note'] as String?,
+    );
+  }
 
   Map<String, dynamic> toJson() => {
         'uid': uid,
@@ -238,7 +253,6 @@ class Course {
         'id': id,
         'name': name,
         'teacher': teacher,
-        'weeks': weeks,
         'classTimes': classTimes.map((c) => c.toJson()).toList(),
         'location': location.toJson(),
         'colorValue': colorValue,

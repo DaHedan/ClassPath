@@ -122,7 +122,9 @@ class NotificationService {
       final remind = course.remindMinutes;
       if (remind == null) continue;
       for (final ct in course.classTimes) {
-        for (final w in course.weeks) {
+        final weeks = ct.weeks ??
+            [for (var i = 1; i <= active.totalWeeks; i++) i];
+        for (final w in weeks) {
           final d = ScheduleMath.dateOf(w, ct.weekday, active);
           if (d.isBefore(thisMonday) || d.isAfter(windowEnd)) continue;
           final hm = ct.start.split(':');

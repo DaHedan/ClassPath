@@ -141,10 +141,13 @@ class _TimetableGridState extends State<TimetableGrid> {
     }
     for (final course in widget.courses) {
       if (course.scheduleId != widget.schedule.id) continue;
-      final visible =
-          widget.semesterMode || course.weeks.contains(widget.week);
-      if (!visible) continue;
       for (final ct in course.classTimes) {
+        // 每组上课时间独立控制上课周：null 表示全部周，否则仅所选周显示。
+        if (!widget.semesterMode &&
+            ct.weeks != null &&
+            !ct.weeks!.contains(widget.week)) {
+          continue;
+        }
         if (!widget.semesterMode) {
           // 调休搬课：该星期的课整体挪到补班日所在列，原列不再渲染。
           final movedTo = movedWeekday[ct.weekday];
