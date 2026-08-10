@@ -232,6 +232,8 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
                 initialDate: _firstMonday ?? DateTime.now(),
                 firstDate: DateTime(2000),
                 lastDate: DateTime(2100),
+                // 第一周周一只能是周一。
+                selectableDayPredicate: (day) => day.weekday == DateTime.monday,
               );
               if (d != null) {
                 setState(() => _firstMonday = ScheduleMath.dateOnly(d));
