@@ -47,6 +47,12 @@ class _TimeDialPickerState extends State<_TimeDialPicker>
   late int _lastMinute = _minute;
   late bool _lastHourMode = _pickingHour;
 
+  // 拖动状态：按下时记录起点、移动超过容差进入拖动。
+  Offset? _downPos;
+  bool _dragging = false;
+  // 本次按下是否选中了有效值（中心留白区按下不算，抬起时不切模式）。
+  bool _selectedThisPress = false;
+
   String get _hh => _hour.toString().padLeft(2, '0');
   String get _mm => _minute.toString().padLeft(2, '0');
 
@@ -79,16 +85,13 @@ class _TimeDialPickerState extends State<_TimeDialPicker>
 
   /// 根据点击/拖动位置选择小时或分钟。
   /// [center] 为表盘中心（相对手势局部坐标）。
-  /// [autoSwitch] 为 true 时（点按），选完小时立即切到分钟。
   /// [animate] 为 false（拖动）时直接跟随，不做过渡动画。
-  void _onDial(Offset local,
-      {required Offset center,
-      bool autoSwitch = false,
-      bool animate = true}) {
+  /// 返回是否选中了有效值（中心留白区返回 false）。
+  bool _onDial(Offset local, {required Offset center, bool animate = true}) {
     final dx = local.dx - center.dx;
     final dy = local.dy - center.dy;
     final r = math.sqrt(dx * dx + dy * dy);
-    if (r < 28) return; // 中心留白区不选择
+    if (r < 28) return false; // 中心留白区不选择
     var angle = math.atan2(dy, dx) + math.pi / 2; // 顶部为 0
     if (angle < 0) angle += 2 * math.pi;
     if (angle >= 2 * math.pi) angle -= 2 * math.pi;
@@ -102,13 +105,13 @@ class _TimeDialPickerState extends State<_TimeDialPicker>
         } else {
           _hour = index == 0 ? 0 : index + 12;
         }
-        if (autoSwitch) _pickingHour = false;
       } else {
         // 分钟：一圈 60 个刻度，支持任意非 5 倍数。
         final index = (angle / (2 * math.pi / 60)).round() % 60;
         _minute = index;
       }
     }, animate: animate);
+    return true;
   }
 
   @override
@@ -143,19 +146,44 @@ class _TimeDialPickerState extends State<_TimeDialPicker>
             SizedBox(
               width: _dialSize,
               height: _dialSize,
-              child: GestureDetector(
-                onTapDown: (d) => _onDial(d.localPosition,
-                    center: const Offset(_dialSize / 2, _dialSize / 2),
-                    autoSwitch: true),
-                onPanUpdate: (d) => _onDial(d.localPosition,
-                    center: const Offset(_dialSize / 2, _dialSize / 2),
-                    animate: false),
-                // 拖动选完小时后（松手/取消）切到分钟。
-                onPanEnd: (_) {
-                  if (_pickingHour) setState(() => _pickingHour = false);
+              // 用 Listener 自己管理按下/拖动/抬起，避免 onTapDown 与
+              // onPanUpdate 手势竞争导致点选偶尔丢失、拖动跳到别处。
+              child: Listener(
+                onPointerDown: (e) {
+                  _downPos = e.localPosition;
+                  _dragging = false;
+                  // 按下位置立即选中（点哪选哪），不用等手势竞技场裁决。
+                  _selectedThisPress = _onDial(e.localPosition,
+                      center: const Offset(_dialSize / 2, _dialSize / 2));
                 },
-                onPanCancel: () {
-                  if (_pickingHour) setState(() => _pickingHour = false);
+                onPointerMove: (e) {
+                  if (_downPos == null) return;
+                  if (!_dragging) {
+                    // 未超过点击容差前仍是点按，交给抬起时的切换逻辑。
+                    if ((e.localPosition - _downPos!).distance < 18) return;
+                    _dragging = true;
+                  }
+                  final ok = _onDial(e.localPosition,
+                      center: const Offset(_dialSize / 2, _dialSize / 2),
+                      animate: false);
+                  if (ok) _selectedThisPress = true;
+                },
+                onPointerUp: (_) {
+                  _downPos = null;
+                  _dragging = false;
+                  // 选中过有效值才从小时切到分钟，中心留白区的点按不算。
+                  if (_pickingHour && _selectedThisPress) {
+                    setState(() => _pickingHour = false);
+                  }
+                  _selectedThisPress = false;
+                },
+                onPointerCancel: (_) {
+                  _downPos = null;
+                  _dragging = false;
+                  if (_pickingHour && _selectedThisPress) {
+                    setState(() => _pickingHour = false);
+                  }
+                  _selectedThisPress = false;
                 },
                 child: AnimatedBuilder(
                   animation: _anim,
