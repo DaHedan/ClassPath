@@ -1,4 +1,6 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../models/course.dart';
 import '../models/schedule.dart';
@@ -10,13 +12,19 @@ import 'course_block.dart';
 class TimetableGridController {
   final ScrollController hScroll = ScrollController();
   double labelW = 0;
-  double colW = 0;
+
+  /// 7 个星期的列宽（本学期模式下含并排课的列更宽）。
+  List<double> dayWidths = const [];
 
   /// 把某一天的列滚动到屏幕中央。滚动视图未就绪时返回 false。
   bool scrollToDay(int day, {bool animate = true}) {
-    if (!hScroll.hasClients) return false;
+    if (!hScroll.hasClients || dayWidths.length != 7) return false;
     final viewport = hScroll.position.viewportDimension;
-    final offset = labelW + (day - 1) * colW + colW / 2 - viewport / 2;
+    var x = labelW;
+    for (var d = 1; d < day; d++) {
+      x += dayWidths[d - 1];
+    }
+    final offset = x + dayWidths[day - 1] / 2 - viewport / 2;
     final clamped = offset.clamp(0.0, hScroll.position.maxScrollExtent);
     if (animate) {
       hScroll.animateTo(clamped,
@@ -69,10 +77,31 @@ class TimetableGrid extends StatefulWidget {
 }
 
 class _TimetableGridState extends State<TimetableGrid> {
-  static const double labelW = 54;
-  static const double colW = 68;
-  static const double rowH = 72;
-  static const double headerH = 46;
+  // 基础尺寸：随缩放倍率 _scale 整体放大（列宽、行高、字号）。
+  static const double baseLabelW = 54;
+  static const double baseColW = 100; // 每列（星期）宽度，内容较多时横向滚动
+  static const double baseRowH = 72;
+  static const double baseHeaderH = 46;
+
+  /// 运行时缩放倍率：Ctrl/Cmd+滚轮、触控板双指捏合调节。
+  /// 不持久化，每次启动都是默认 1.0。
+  double _scale = 1.0;
+  static const double _minScale = 0.6;
+  static const double _maxScale = 2.5;
+
+  /// 本学期模式：同一格内并排多门课时，该列加宽的比例。
+  static const double _sharedColFactor = 1.5;
+
+  /// 触控板双指缩放基准（PointerPanZoom 的 scale 是相对手势起点的累计值）。
+  double _panZoomBase = 1.0;
+
+  /// 最近一次 build 计算的各列宽度（供滚动居中与缩放锚定使用）。
+  List<double> _dayWidths = const [];
+
+  double get _labelW => baseLabelW * _scale;
+  double get _colW => baseColW * _scale;
+  double get _rowH => baseRowH * _scale;
+  double get _headerH => baseHeaderH * _scale;
 
   @override
   void initState() {
@@ -101,13 +130,87 @@ class _TimetableGridState extends State<TimetableGrid> {
   /// 底部考试面板高度变化）重置、或首帧尚未就绪的情况。
   void _centerToday({required int remaining}) {
     if (!mounted) return;
-    widget.controller.labelW = labelW;
-    widget.controller.colW = colW;
+    widget.controller.labelW = _labelW;
+    widget.controller.dayWidths = _dayWidths;
     widget.controller.scrollToDay(DateTime.now().weekday, animate: false);
     if (remaining > 0) {
       WidgetsBinding.instance
           .addPostFrameCallback((_) => _centerToday(remaining: remaining - 1));
     }
+  }
+
+  /// 缩放一档（Ctrl/Cmd+滚轮）：delta 为正放大、负缩小。
+  void _zoomBy(double delta) => _applyScale(_scale + delta);
+
+  /// 应用新缩放倍率，并保持视口中央的内容位置不变。
+  void _applyScale(double v) {
+    final next = v.clamp(_minScale, _maxScale);
+    if (next == _scale) return;
+    final ctrl = widget.controller;
+    // 记录缩放前视口中央在内容中的相对位置。
+    final oldTotal = _labelW + _dayWidths.fold(0.0, (a, b) => a + b);
+    double? centerFrac;
+    if (ctrl.hScroll.hasClients) {
+      final viewport = ctrl.hScroll.position.viewportDimension;
+      centerFrac = (ctrl.hScroll.offset + viewport / 2) / oldTotal;
+    }
+    setState(() => _scale = next);
+    if (centerFrac != null) {
+      // 闭包内捕获的非空副本：避免可空提升问题。
+      final double frac = centerFrac;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !ctrl.hScroll.hasClients) return;
+        final viewport = ctrl.hScroll.position.viewportDimension;
+        final newTotal = _labelW + _dayWidths.fold(0.0, (a, b) => a + b);
+        final newCenter = newTotal * frac;
+        ctrl.hScroll.jumpTo((newCenter - viewport / 2)
+            .clamp(0.0, ctrl.hScroll.position.maxScrollExtent));
+      });
+    }
+  }
+
+  /// 指针滚轮信号：按住 Ctrl/Cmd 时缩放，否则交给默认滚动。
+  void _onPointerSignal(PointerSignalEvent event) {
+    if (event is PointerScrollEvent &&
+        (HardwareKeyboard.instance.isControlPressed ||
+            HardwareKeyboard.instance.isMetaPressed)) {
+      _zoomBy(event.scrollDelta.dy < 0 ? 0.12 : -0.12);
+    }
+  }
+
+  /// 触控板双指捏合开始：记录手势起点时的缩放倍率。
+  void _onPanZoomStart(PointerPanZoomStartEvent event) {
+    _panZoomBase = _scale;
+  }
+
+  /// 触控板双指捏合：scale 是相对手势起点的累计倍率。
+  void _onPanZoomUpdate(PointerPanZoomUpdateEvent event) {
+    _applyScale(_panZoomBase * event.scale);
+  }
+
+  /// 各列宽度：本学期模式下，含并排多门课的列按 _sharedColFactor 加宽；
+  /// 单周模式各列等宽。
+  List<double> _dayWidthsOf(Map<String, List<_CellEntry>> cellMap) {
+    if (!widget.semesterMode) {
+      return [for (var i = 0; i < 7; i++) _colW];
+    }
+    final shared = <int>{};
+    for (var w = 1; w <= 7; w++) {
+      for (var p = 1; p <= widget.schedule.periodsPerDay; p++) {
+        final entries = cellMap['${w}_$p'];
+        if (entries == null ||
+            entries.length < 2 ||
+            entries.map((e) => e.course.uid).toSet().length < 2) {
+          continue;
+        }
+        shared.add(w);
+        break;
+      }
+    }
+    return [
+      for (var w = 1; w <= 7; w++)
+        shared.contains(w) ? _colW * _sharedColFactor : _colW,
+    ];
   }
 
   @override
@@ -121,7 +224,6 @@ class _TimetableGridState extends State<TimetableGrid> {
     final headerWeek = widget.semesterMode
         ? ScheduleMath.currentWeekOfNow(widget.schedule)
         : widget.week;
-    const totalW = labelW + colW * 7;
 
     // 统计每个「星期x + 第y节」格子里的课程（挂在节次段的起始节下）。
     final cellMap = <String, List<_CellEntry>>{};
@@ -170,28 +272,45 @@ class _TimetableGridState extends State<TimetableGrid> {
       }
     }
 
+    // 计算各列宽度（本学期模式下含并排课的列加宽），供布局与滚动居中使用。
+    _dayWidths = _dayWidthsOf(cellMap);
+    // 同步到控制器，保证缩放后“跳转到某一天”仍用最新尺寸定位。
+    widget.controller.labelW = _labelW;
+    widget.controller.dayWidths = _dayWidths;
+    final totalW = _labelW + _dayWidths.fold(0.0, (a, b) => a + b);
+
     return LayoutBuilder(
       builder: (context, constraints) {
-        return SingleChildScrollView(
-          controller: widget.controller.hScroll,
-          scrollDirection: Axis.horizontal,
+        // 外层 Listener 拦截 Ctrl/Cmd+滚轮与触控板双指手势做缩放；
+        // 此时内层 Scrollable 通过 _ZoomWheelPhysics 拒绝消费指针信号，
+        // 让事件冒泡到这里。普通滚轮与拖动滚动不受影响。
+        return Listener(
+          onPointerSignal: _onPointerSignal,
+          onPointerPanZoomStart: _onPanZoomStart,
+          onPointerPanZoomUpdate: _onPanZoomUpdate,
           child: SingleChildScrollView(
-            scrollDirection: Axis.vertical,
-            child: SizedBox(
-              width: totalW,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _buildHeaderRow(headerWeek, theme),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildLabelColumn(theme),
-                      for (var w = 1; w <= 7; w++)
-                        _buildDayColumn(w, cellMap, theme),
-                    ],
-                  ),
-                ],
+            controller: widget.controller.hScroll,
+            scrollDirection: Axis.horizontal,
+            physics: const _ZoomWheelPhysics(),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.vertical,
+              physics: const _ZoomWheelPhysics(),
+              child: SizedBox(
+                width: totalW,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildHeaderRow(headerWeek, theme),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildLabelColumn(theme),
+                        for (var w = 1; w <= 7; w++)
+                          _buildDayColumn(w, cellMap, theme),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -206,8 +325,8 @@ class _TimetableGridState extends State<TimetableGrid> {
       // stretch 会把子项高度强制为无穷大并导致布局异常。
       children: [
         SizedBox(
-          width: labelW,
-          height: headerH,
+          width: _labelW,
+          height: _headerH,
           child: Center(
             child: Text('节次',
                 style: TextStyle(
@@ -216,8 +335,8 @@ class _TimetableGridState extends State<TimetableGrid> {
         ),
         for (var w = 1; w <= 7; w++)
           SizedBox(
-            width: colW,
-            height: headerH,
+            width: _dayWidths[w - 1],
+            height: _headerH,
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -279,18 +398,18 @@ class _TimetableGridState extends State<TimetableGrid> {
     final children = <Widget>[];
     for (var p = 1; p <= widget.schedule.periodsPerDay; p++) {
       children.add(SizedBox(
-        width: labelW,
-        height: rowH,
+        width: _labelW,
+        height: _rowH,
         child: Center(
           child: Text('$p',
               style: const TextStyle(
                   fontSize: 13, fontWeight: FontWeight.bold)),
         ),
       ));
-      children.addAll(_mealCells(p, labelW, theme, showText: true));
+      children.addAll(_mealCells(p, _labelW, theme, showText: true));
     }
     return SizedBox(
-      width: labelW,
+      width: _labelW,
       child: Column(mainAxisSize: MainAxisSize.min, children: children),
     );
   }
@@ -302,6 +421,7 @@ class _TimetableGridState extends State<TimetableGrid> {
     ThemeData theme,
   ) {
     final children = <Widget>[];
+    final width = _dayWidths[w - 1];
     var p = 1;
     while (p <= widget.schedule.periodsPerDay) {
       final entries = cellMap['${w}_$p'];
@@ -311,19 +431,19 @@ class _TimetableGridState extends State<TimetableGrid> {
           if (e.time.endPeriod > maxEnd) maxEnd = e.time.endPeriod;
         }
         // 跨行块高度：覆盖的节次行高 + 期间各餐条高度。
-        var h = (maxEnd - p + 1) * rowH;
+        var h = (maxEnd - p + 1) * _rowH;
         for (var x = p; x < maxEnd; x++) {
           h += _mealHeight(x);
         }
-        children.add(_spanBlock(entries, h, theme));
+        children.add(_spanBlock(entries, h, width, theme));
         // 块覆盖第 p..maxEnd 节；第 maxEnd 节之后的餐条补在块下方，
         // 否则该列少一段高度、与其它列错位（如课在饭前格子时餐条消失）。
-        children.addAll(_mealCells(maxEnd, colW, theme, showText: false));
+        children.addAll(_mealCells(maxEnd, width, theme, showText: false));
         p = maxEnd + 1;
       } else {
         children.add(SizedBox(
-          width: colW,
-          height: rowH,
+          width: width,
+          height: _rowH,
           child: Container(
             decoration: BoxDecoration(
               border: Border.all(
@@ -332,19 +452,19 @@ class _TimetableGridState extends State<TimetableGrid> {
             ),
           ),
         ));
-        children.addAll(_mealCells(p, colW, theme, showText: false));
+        children.addAll(_mealCells(p, width, theme, showText: false));
         p++;
       }
     }
     return SizedBox(
-      width: colW,
+      width: width,
       child: Column(mainAxisSize: MainAxisSize.min, children: children),
     );
   }
 
   // 课程跨行块：一节或多节课并排，整体高度跨多个节次。
   Widget _spanBlock(
-      List<_CellEntry> entries, double height, ThemeData theme) {
+      List<_CellEntry> entries, double height, double width, ThemeData theme) {
     // 本学期模式：同一门课在同格内的多条上课时间合并为一个方块
     // （如不同上课周/地点，块内每时段一行）；不同课程仍并排。
     // 单周模式：每条上课时间独立方块并排。
@@ -361,10 +481,10 @@ class _TimetableGridState extends State<TimetableGrid> {
       }
     }
     return SizedBox(
-      width: colW,
+      width: width,
       height: height,
       child: Container(
-        padding: const EdgeInsets.all(2),
+        padding: EdgeInsets.all(2 * _scale),
         decoration: BoxDecoration(
           border: Border.all(
               color: theme.dividerColor.withValues(alpha: 0.45), width: 0.6),
@@ -377,6 +497,7 @@ class _TimetableGridState extends State<TimetableGrid> {
                   course: group.first.course,
                   times: [for (final e in group) e.time],
                   showWeeks: widget.semesterMode,
+                  scale: _scale,
                   onTap: () =>
                       widget.onCourseTap(group.first.course, group.first.time),
                 ),
@@ -435,5 +556,26 @@ class _TimetableGridState extends State<TimetableGrid> {
                   fontSize: 10, color: theme.colorScheme.onSurfaceVariant),
             ),
     );
+  }
+}
+
+/// 网格缩放用的滚动物理：按住 Ctrl/Cmd 时拒绝消费指针滚轮事件，
+/// 让事件冒泡到外层 Listener 的 [_onPointerSignal] 做缩放；
+/// 普通滚轮（垂直滚动）与拖动滚动不受影响。
+class _ZoomWheelPhysics extends ScrollPhysics {
+  const _ZoomWheelPhysics({super.parent});
+
+  @override
+  _ZoomWheelPhysics applyTo(ScrollPhysics? ancestor) {
+    return _ZoomWheelPhysics(parent: buildParent(ancestor));
+  }
+
+  @override
+  bool shouldAcceptUserOffset(ScrollMetrics position) {
+    if (HardwareKeyboard.instance.isControlPressed ||
+        HardwareKeyboard.instance.isMetaPressed) {
+      return false;
+    }
+    return super.shouldAcceptUserOffset(position);
   }
 }

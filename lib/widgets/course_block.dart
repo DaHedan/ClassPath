@@ -18,12 +18,16 @@ class CourseBlock extends StatelessWidget {
   /// 是否显示上课周（本学期模式为 true，单周模式为 false）。
   final bool showWeeks;
 
+  /// 网格缩放倍率：随缩放等比例放大字号与内边距。
+  final double scale;
+
   const CourseBlock({
     super.key,
     required this.course,
     required this.times,
     required this.onTap,
     this.showWeeks = false,
+    this.scale = 1.0,
   });
 
   /// 单节课地点文本：单节覆盖优先，否则用课程总体地点；
@@ -77,11 +81,12 @@ class CourseBlock extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        margin: const EdgeInsets.all(1.5),
-        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 3),
+        margin: EdgeInsets.all(1.5 * scale),
+        padding: EdgeInsets.symmetric(
+            horizontal: 2 * scale, vertical: 3 * scale),
         decoration: BoxDecoration(
           color: color,
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: BorderRadius.circular(6 * scale),
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -92,7 +97,7 @@ class CourseBlock extends StatelessWidget {
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                fontSize: 10.5,
+                fontSize: 10.5 * scale,
                 fontWeight: FontWeight.w600,
                 height: 1.2,
                 color: textColor,
@@ -103,18 +108,19 @@ class CourseBlock extends StatelessWidget {
                 teacher,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 8.5, height: 1.2, color: textColor),
+                style:
+                    TextStyle(fontSize: 8.5 * scale, height: 1.2, color: textColor),
               ),
             Text(
               timeText,
-              style: TextStyle(fontSize: 8, height: 1.2, color: textColor),
+              style: TextStyle(fontSize: 8 * scale, height: 1.2, color: textColor),
             ),
             for (final line in infoLines)
               Text(
                 line,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 8, height: 1.2, color: textColor),
+                style: TextStyle(fontSize: 8 * scale, height: 1.2, color: textColor),
               ),
           ],
         ),
