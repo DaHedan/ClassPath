@@ -22,9 +22,12 @@ class CourseBlock extends StatelessWidget {
         color.computeLuminance() > 0.5 ? Colors.black87 : Colors.white;
     final teacher = (course.teacher ?? '').trim();
     // 地点：单节覆盖优先，否则用课程总体地点。
-    final locText =
+    // 楼宇与房号之间不加空格（格子空间有限，如「第一教学楼A101」）。
+    final loc =
         (time.location?.isEmpty ?? true) ? course.location : time.location!;
-    final location = locText.display.trim();
+    final b = loc.building.trim();
+    final r = loc.room.trim();
+    final location = b.isEmpty ? r : (r.isEmpty ? b : '$b$r');
 
     return GestureDetector(
       onTap: onTap,
