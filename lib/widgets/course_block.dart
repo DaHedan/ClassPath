@@ -1,19 +1,43 @@
 import 'package:flutter/material.dart';
 
 import '../models/course.dart';
+import '../services/schedule_math.dart';
 
-/// 课程表中的单个课程方块：显示课程名、教师、上下课时间、地点。
+/// 课程表中的单个课程方块：显示课程名、教师、上课时间、上课周与地点。
+///
+/// [times] 为本学期模式下同格内合并的同一门课的各时段（如不同上课周、
+/// 不同地点），每条显示一行「上课周+地点」；单周模式只有一个时段，
+/// 只显示地点、不显示上课周。
 class CourseBlock extends StatelessWidget {
   final Course course;
-  final ClassTime time;
   final VoidCallback onTap;
+
+  /// 该方块包含的上课时段（至少一个）。
+  final List<ClassTime> times;
+
+  /// 是否显示上课周（本学期模式为 true，单周模式为 false）。
+  final bool showWeeks;
 
   const CourseBlock({
     super.key,
     required this.course,
-    required this.time,
+    required this.times,
     required this.onTap,
+    this.showWeeks = false,
   });
+
+  /// 单节课地点文本：单节覆盖优先，否则用课程总体地点；
+  /// 楼宇与房号之间不加空格（如「第一教学楼A101」）。
+  String _locOf(ClassTime ct) {
+    final loc = (ct.location?.isEmpty ?? true) ? course.location : ct.location!;
+    final b = loc.building.trim();
+    final r = loc.room.trim();
+    return b.isEmpty ? r : (r.isEmpty ? b : '$b$r');
+  }
+
+  /// 上课周文本：null（全部周）显示「全部周」，否则压缩为「第x-x周」。
+  String _weeksOf(ClassTime ct) =>
+      ct.weeks == null ? '全部周' : ScheduleMath.weeksToText(ct.weeks!);
 
   @override
   Widget build(BuildContext context) {
@@ -21,13 +45,34 @@ class CourseBlock extends StatelessWidget {
     final textColor =
         color.computeLuminance() > 0.5 ? Colors.black87 : Colors.white;
     final teacher = (course.teacher ?? '').trim();
-    // 地点：单节覆盖优先，否则用课程总体地点。
-    // 楼宇与房号之间不加空格（格子空间有限，如「第一教学楼A101」）。
-    final loc =
-        (time.location?.isEmpty ?? true) ? course.location : time.location!;
-    final b = loc.building.trim();
-    final r = loc.room.trim();
-    final location = b.isEmpty ? r : (r.isEmpty ? b : '$b$r');
+
+    // 时间行：取合并时段中最早的开始到最晚的结束（单时段即其本身）。
+    var minStart = times.first.start;
+    var maxEnd = times.first.end;
+    for (final ct in times) {
+      if (ScheduleMath.timeToMinutes(ct.start) <
+          ScheduleMath.timeToMinutes(minStart)) {
+        minStart = ct.start;
+      }
+      if (ScheduleMath.timeToMinutes(ct.end) >
+          ScheduleMath.timeToMinutes(maxEnd)) {
+        maxEnd = ct.end;
+      }
+    }
+    final timeText = '$minStart-$maxEnd';
+
+    // 底部信息行：单周模式只显示地点；本学期模式每条时段显示「上课周+地点」。
+    final infoLines = <String>[];
+    if (showWeeks) {
+      for (final ct in times) {
+        final w = _weeksOf(ct);
+        final l = _locOf(ct);
+        infoLines.add(l.isEmpty ? w : '$w$l');
+      }
+    } else {
+      final l = _locOf(times.first);
+      if (l.isNotEmpty) infoLines.add(l);
+    }
 
     return GestureDetector(
       onTap: onTap,
@@ -61,12 +106,12 @@ class CourseBlock extends StatelessWidget {
                 style: TextStyle(fontSize: 8.5, height: 1.2, color: textColor),
               ),
             Text(
-              '${time.start}-${time.end}',
+              timeText,
               style: TextStyle(fontSize: 8, height: 1.2, color: textColor),
             ),
-            if (location.isNotEmpty)
+            for (final line in infoLines)
               Text(
-                location,
+                line,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(fontSize: 8, height: 1.2, color: textColor),

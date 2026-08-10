@@ -345,6 +345,21 @@ class _TimetableGridState extends State<TimetableGrid> {
   // 课程跨行块：一节或多节课并排，整体高度跨多个节次。
   Widget _spanBlock(
       List<_CellEntry> entries, double height, ThemeData theme) {
+    // 本学期模式：同一门课在同格内的多条上课时间合并为一个方块
+    // （如不同上课周/地点，块内每时段一行）；不同课程仍并排。
+    // 单周模式：每条上课时间独立方块并排。
+    final groups = <List<_CellEntry>>[];
+    if (widget.semesterMode) {
+      final byCourse = <String, List<_CellEntry>>{};
+      for (final e in entries) {
+        byCourse.putIfAbsent(e.course.uid, () => []).add(e);
+      }
+      groups.addAll(byCourse.values);
+    } else {
+      for (final e in entries) {
+        groups.add([e]);
+      }
+    }
     return SizedBox(
       width: colW,
       height: height,
@@ -356,12 +371,14 @@ class _TimetableGridState extends State<TimetableGrid> {
         ),
         child: Row(
           children: [
-            for (final e in entries)
+            for (final group in groups)
               Expanded(
                 child: CourseBlock(
-                  course: e.course,
-                  time: e.time,
-                  onTap: () => widget.onCourseTap(e.course, e.time),
+                  course: group.first.course,
+                  times: [for (final e in group) e.time],
+                  showWeeks: widget.semesterMode,
+                  onTap: () =>
+                      widget.onCourseTap(group.first.course, group.first.time),
                 ),
               ),
           ],
