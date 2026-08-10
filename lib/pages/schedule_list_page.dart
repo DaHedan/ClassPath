@@ -6,6 +6,7 @@ import '../models/schedule.dart';
 import '../services/schedule_math.dart';
 import '../state/app_state.dart';
 import 'course_detail_page.dart';
+import 'schedule_export_page.dart';
 import 'schedule_form_page.dart';
 import 'settings_page.dart';
 
@@ -110,6 +111,19 @@ class ScheduleListPage extends StatelessWidget {
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
+                              IconButton(
+                                tooltip: '分享',
+                                icon: const Icon(Icons.share_outlined,
+                                    size: 20),
+                                onPressed: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                      builder: (_) => ScheduleExportPage(
+                                            schedule: s,
+                                            courses: app.coursesOf(s.id),
+                                          )),
+                                ),
+                              ),
                               IconButton(
                                 tooltip: '编辑',
                                 icon:

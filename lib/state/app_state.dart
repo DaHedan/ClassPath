@@ -6,6 +6,8 @@ import '../models/course.dart';
 import '../models/schedule.dart';
 import '../services/holiday_service.dart';
 import '../services/notification_service.dart';
+import '../services/schedule_share_service.dart';
+import '../utils/ids.dart';
 
 /// 应用全局状态：课程表、课程、设置，以及所有增删改操作。
 class AppState extends ChangeNotifier {
@@ -125,6 +127,49 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 导入分享的课程表（每张课程表作为新课程表导入）。
+  ///
+  /// 所有 id 刷新为本地新 id，课程的 scheduleId 指向导入后的新 id；
+  /// 与已有课程表同名时自动追加「（副本N）」后缀，避免覆盖。
+  Future<ScheduleImportResult> importSchedules(
+      List<ScheduleSharePackage> packages) async {
+    final names = <String>[];
+    var renamed = 0;
+    final existing = schedules.map((s) => s.name).toSet();
+    for (final p in packages) {
+      final newId = genId();
+      var name = p.schedule.name;
+      var candidate = name;
+      var n = 1;
+      while (existing.contains(candidate)) {
+        candidate = '$name（副本${n++}）';
+      }
+      if (candidate != name) {
+        renamed++;
+        name = candidate;
+      }
+      existing.add(name);
+
+      final s = p.schedule.copy()
+        ..id = newId
+        ..name = name;
+      schedules.add(s);
+      for (final c in p.courses) {
+        courses.add(c.copy()
+          ..uid = genId()
+          ..scheduleId = newId);
+      }
+      names.add(name);
+    }
+    if (settings.activeScheduleId == null && schedules.isNotEmpty) {
+      settings.activeScheduleId = schedules.first.id;
+    }
+    await _save();
+    notifyListeners();
+    _sync();
+    return ScheduleImportResult(names: names, renamed: renamed);
+  }
+
   // ---------- 课程 ----------
 
   Future<void> addCourse(Course c) async {
@@ -176,4 +221,12 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     _sync();
   }
+}
+
+/// 导入结果：导入的课程表名称列表与因重名而改名的数量。
+class ScheduleImportResult {
+  final List<String> names;
+  final int renamed;
+
+  ScheduleImportResult({required this.names, required this.renamed});
 }

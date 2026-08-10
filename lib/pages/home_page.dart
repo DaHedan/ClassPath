@@ -11,6 +11,7 @@ import '../widgets/week_picker_dialog.dart';
 import 'course_detail_page.dart';
 import 'course_form_page.dart';
 import 'schedule_form_page.dart';
+import 'schedule_import_page.dart';
 import 'schedule_list_page.dart';
 import 'settings_page.dart';
 
@@ -59,21 +60,6 @@ class _HomePageState extends State<HomePage> {
       builder: (ctx) => SimpleDialog(
         title: const Text('切换课程表'),
         children: [
-          SimpleDialogOption(
-            onPressed: () {
-              Navigator.pop(ctx);
-              _createSchedule();
-            },
-            child: Row(
-              children: [
-                Icon(Icons.add, size: 18, color: Theme.of(ctx).colorScheme.primary),
-                const SizedBox(width: 10),
-                const Text('新建课程表',
-                    style: TextStyle(fontWeight: FontWeight.w600)),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
           for (final s in app.schedules)
             SimpleDialogOption(
               onPressed: () => Navigator.pop(ctx, s),
@@ -96,6 +82,37 @@ class _HomePageState extends State<HomePage> {
                 ],
               ),
             ),
+          const Divider(height: 1),
+          SimpleDialogOption(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _createSchedule();
+            },
+            child: Row(
+              children: [
+                Icon(Icons.add,
+                    size: 18, color: Theme.of(ctx).colorScheme.primary),
+                const SizedBox(width: 10),
+                const Text('新建课程表',
+                    style: TextStyle(fontWeight: FontWeight.w600)),
+              ],
+            ),
+          ),
+          SimpleDialogOption(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _importSchedule();
+            },
+            child: Row(
+              children: [
+                Icon(Icons.file_download_outlined,
+                    size: 18, color: Theme.of(ctx).colorScheme.primary),
+                const SizedBox(width: 10),
+                const Text('导入课程表',
+                    style: TextStyle(fontWeight: FontWeight.w600)),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -112,6 +129,19 @@ class _HomePageState extends State<HomePage> {
     await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => ScheduleFormPage()),
+    );
+    if (mounted) {
+      final s = app.activeSchedule;
+      setState(() => _week = s == null ? 1 : ScheduleMath.currentWeekOfNow(s));
+    }
+  }
+
+  /// 从主页弹窗进入导入页，导入后刷新当前周。
+  Future<void> _importSchedule() async {
+    final app = context.read<AppState>();
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const ScheduleImportPage()),
     );
     if (mounted) {
       final s = app.activeSchedule;

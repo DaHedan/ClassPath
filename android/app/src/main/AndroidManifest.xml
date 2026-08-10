@@ -1,4 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 摄像头：用于扫描课程表分享二维码 -->
+    <uses-permission android:name="android.permission.CAMERA"/>
     <application
         android:label="classpath"
         android:name="${applicationName}"
