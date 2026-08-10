@@ -55,24 +55,9 @@ class ScheduleListPage extends StatelessWidget {
       ),
       body: app.schedules.isEmpty
           ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text('还没有课程表，点击下方按钮新建或导入',
-                      style: TextStyle(
-                          color: Theme.of(context).colorScheme.outline)),
-                  const SizedBox(height: 16),
-                  OutlinedButton.icon(
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) => const ScheduleImportPage()),
-                    ),
-                    icon: const Icon(Icons.file_download_outlined),
-                    label: const Text('导入课程表'),
-                  ),
-                ],
-              ),
+              child: Text('还没有课程表，点击下方按钮新建或导入',
+                  style: TextStyle(
+                      color: Theme.of(context).colorScheme.outline)),
             )
           : ReorderableListView.builder(
               // 底部留出空间给「新建课程表」FAB。
@@ -167,13 +152,29 @@ class ScheduleListPage extends StatelessWidget {
                 );
               },
             ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const ScheduleFormPage()),
-        ),
-        icon: const Icon(Icons.add),
-        label: const Text('新建课程表'),
+      floatingActionButton: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          FloatingActionButton.extended(
+            heroTag: 'fab_new_schedule',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const ScheduleFormPage()),
+            ),
+            icon: const Icon(Icons.add),
+            label: const Text('新建课程表'),
+          ),
+          const SizedBox(width: 12),
+          FloatingActionButton.extended(
+            heroTag: 'fab_import_schedule',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const ScheduleImportPage()),
+            ),
+            icon: const Icon(Icons.file_download_outlined),
+            label: const Text('导入课程表'),
+          ),
+        ],
       ),
     );
   }
