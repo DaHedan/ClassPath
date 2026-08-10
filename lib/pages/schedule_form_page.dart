@@ -19,9 +19,9 @@ class ScheduleFormPage extends StatefulWidget {
 
 class _ScheduleFormPageState extends State<ScheduleFormPage> {
   late final TextEditingController _nameCtrl;
-  late int _totalWeeks;
-  late DateTime _firstMonday;
-  late int _periodsPerDay;
+  late int? _totalWeeks; // null 表示未设置
+  late DateTime? _firstMonday; // null 表示未设置
+  late int? _periodsPerDay; // null 表示未设置
   late List<Building> _buildings;
   late int _lunchAfter;
   late int _dinnerAfter;
@@ -31,12 +31,10 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
   void initState() {
     super.initState();
     final s = widget.schedule;
-    final now = DateTime.now();
-    final thisMonday = now.subtract(Duration(days: now.weekday - 1));
     _nameCtrl = TextEditingController(text: s?.name ?? '');
-    _totalWeeks = s?.totalWeeks ?? 20;
-    _firstMonday = s?.firstMonday ?? ScheduleMath.dateOnly(thisMonday);
-    _periodsPerDay = s?.periodsPerDay ?? 8;
+    _totalWeeks = s?.totalWeeks;
+    _firstMonday = s?.firstMonday;
+    _periodsPerDay = s?.periodsPerDay;
     _buildings = (s?.buildings ?? []).map((b) => b.copy()).toList();
     _lunchAfter = s?.lunch.afterPeriod ?? 0;
     _dinnerAfter = s?.dinner.afterPeriod ?? 0;
@@ -47,10 +45,14 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
   }
 
   /// 按当前第一周周一与总周数覆盖的年份拉取节假日（后台执行，失败静默）。
+  /// 新建时两者未设置则跳过。
   void _refreshHolidays() {
-    final lastDay = _firstMonday.add(Duration(days: (_totalWeeks - 1) * 7));
+    final first = _firstMonday;
+    final total = _totalWeeks;
+    if (first == null || total == null) return;
+    final lastDay = first.add(Duration(days: (total - 1) * 7));
     final years = [
-      for (var y = _firstMonday.year; y <= lastDay.year; y++) y
+      for (var y = first.year; y <= lastDay.year; y++) y
     ];
     context.read<AppState>().refreshHolidays(years);
   }
@@ -72,7 +74,7 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
         builder: (_) => BuildingEditPage(
           building: building,
           otherBuildings: _buildings,
-          maxPeriods: _periodsPerDay,
+          maxPeriods: _periodsPerDay ?? 20,
         ),
       ),
     );
@@ -91,7 +93,7 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
         builder: (_) => BuildingEditPage(
           building: Building(name: ''),
           otherBuildings: _buildings,
-          maxPeriods: _periodsPerDay,
+          maxPeriods: _periodsPerDay ?? 20,
         ),
       ),
     );
@@ -114,23 +116,38 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
         return;
       }
     }
+    final totalWeeks = _totalWeeks;
+    final firstMonday = _firstMonday;
+    final periodsPerDay = _periodsPerDay;
+    if (totalWeeks == null) {
+      _snack('请选择总周数');
+      return;
+    }
+    if (firstMonday == null) {
+      _snack('请选择第一周周一的日期');
+      return;
+    }
+    if (periodsPerDay == null) {
+      _snack('请设置一日总节数');
+      return;
+    }
     final app = context.read<AppState>();
     // 调休安排只保留落在本课程表时间范围内的项（第一周周一起 总周数*7 天内）。
     final reschedules = _reschedules
         .where((r) {
           final diff = ScheduleMath.dateOnly(DateTime.parse(r.date))
-              .difference(_firstMonday)
+              .difference(firstMonday)
               .inDays;
-          return diff >= 0 && diff < _totalWeeks * 7;
+          return diff >= 0 && diff < totalWeeks * 7;
         })
         .map((r) => r.copy())
         .toList();
     if (widget.schedule == null) {
       final s = Schedule(
         name: name,
-        totalWeeks: _totalWeeks,
-        firstMonday: _firstMonday,
-        periodsPerDay: _periodsPerDay,
+        totalWeeks: totalWeeks,
+        firstMonday: firstMonday,
+        periodsPerDay: periodsPerDay,
         buildings: _buildings.map((b) => b.copy()).toList(),
         lunch: MealTime(afterPeriod: _lunchAfter, label: '午餐'),
         dinner: MealTime(afterPeriod: _dinnerAfter, label: '晚餐'),
@@ -140,9 +157,9 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
     } else {
       final s = widget.schedule!.copy()
         ..name = name
-        ..totalWeeks = _totalWeeks
-        ..firstMonday = _firstMonday
-        ..periodsPerDay = _periodsPerDay
+        ..totalWeeks = totalWeeks
+        ..firstMonday = firstMonday
+        ..periodsPerDay = periodsPerDay
         ..buildings = _buildings.map((b) => b.copy()).toList()
         ..lunch = MealTime(afterPeriod: _lunchAfter, label: '午餐')
         ..dinner = MealTime(afterPeriod: _dinnerAfter, label: '晚餐')
@@ -151,9 +168,9 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
     }
     // 新建或修改课程表（第一周周一 / 总周数）后，拉取覆盖年份的国务院
     // 节假日调休数据（后台执行；已缓存年份直接跳过，失败静默降级）。
-    final lastDay = _firstMonday.add(Duration(days: (_totalWeeks - 1) * 7));
+    final lastDay = firstMonday.add(Duration(days: (totalWeeks - 1) * 7));
     final years = [
-      for (var y = _firstMonday.year; y <= lastDay.year; y++) y
+      for (var y = firstMonday.year; y <= lastDay.year; y++) y
     ];
     app.refreshHolidays(years);
     if (mounted) {
@@ -206,12 +223,13 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
           ListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('第一周周一的日期'),
-            subtitle: Text(ScheduleMath.formatFull(_firstMonday)),
+            subtitle: Text(
+                _firstMonday == null ? '未设置' : ScheduleMath.formatFull(_firstMonday!)),
             trailing: const Icon(Icons.calendar_month_outlined),
             onTap: () async {
               final d = await showDatePicker(
                 context: context,
-                initialDate: _firstMonday,
+                initialDate: _firstMonday ?? DateTime.now(),
                 firstDate: DateTime(2000),
                 lastDate: DateTime(2100),
               );
@@ -322,7 +340,7 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
   Widget _stepperTile(
     ThemeData theme,
     String label,
-    int value,
+    int? value,
     int min,
     int max,
     ValueChanged<int> onChanged,
@@ -333,19 +351,24 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
         const Spacer(),
         IconButton(
           icon: const Icon(Icons.remove_circle_outline),
-          onPressed: value > min ? () => onChanged(value - 1) : null,
+          onPressed:
+              value != null && value > min ? () => onChanged(value - 1) : null,
         ),
         SizedBox(
-          width: 36,
+          width: 44,
           child: Text(
-            '$value',
+            value == null ? '未设置' : '$value',
             textAlign: TextAlign.center,
             style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
           ),
         ),
         IconButton(
           icon: const Icon(Icons.add_circle_outline),
-          onPressed: value < max ? () => onChanged(value + 1) : null,
+          onPressed: value != null && value < max
+              ? () => onChanged(value + 1)
+              : value == null
+                  ? () => onChanged(min)
+                  : null,
         ),
       ],
     );
@@ -365,7 +388,7 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
           value: value,
           items: [
             const DropdownMenuItem(value: 0, child: Text('不设置')),
-            for (var i = 1; i <= _periodsPerDay; i++)
+            for (var i = 1; i <= (_periodsPerDay ?? 0); i++)
               DropdownMenuItem(value: i, child: Text('第$i节后')),
           ],
           onChanged: (v) => onChanged(v ?? 0),
@@ -378,9 +401,28 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
   /// 为每个补班日选择「当天使用原本（无调休时）哪天的课」——
   /// 可选项为该课程表涵盖的所有放假日。
   Widget _rescheduleSection(ThemeData theme, AppState app) {
+    final firstMonday = _firstMonday;
+    final totalWeeks = _totalWeeks;
+    if (firstMonday == null || totalWeeks == null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '调休安排',
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '请先设置「第一周周一的日期」与「总周数」，'
+            '再查看和安排放假停课与补班搬课',
+            style: TextStyle(fontSize: 12, color: theme.colorScheme.outline),
+          ),
+        ],
+      );
+    }
     final lastDay =
-        _firstMonday.add(Duration(days: (_totalWeeks - 1) * 7 + 6));
-    final first = ScheduleMath.dateOnly(_firstMonday);
+        firstMonday.add(Duration(days: (totalWeeks - 1) * 7 + 6));
+    final first = ScheduleMath.dateOnly(firstMonday);
     final last = ScheduleMath.dateOnly(lastDay);
     // 课程表范围内的所有放假日，作为每个补班日可搬的「原本那天」选项。
     final restDays = app.holidays.entries
@@ -431,7 +473,8 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
   Widget _rescheduleTile(
       ThemeData theme, DateTime d, List<DateTime> restDays) {
     final dateStr = ScheduleMath.dateStr(d);
-    final week = d.difference(_firstMonday).inDays ~/ 7 + 1;
+    // 调用方已保证 _firstMonday 非空（未设置时整个区块都不渲染）。
+    final week = d.difference(_firstMonday!).inDays ~/ 7 + 1;
     final optionValues =
         restDays.map((rd) => ScheduleMath.dateStr(rd)).toSet();
     // 当前已选：使用原本那天的日期；不在候选项中时视为未设置。

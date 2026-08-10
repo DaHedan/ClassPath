@@ -204,10 +204,13 @@ class _PeriodTimeDialog extends StatefulWidget {
 }
 
 class _PeriodTimeDialogState extends State<_PeriodTimeDialog> {
-  late int _from = widget.initial?.startPeriod ?? 1;
-  late int _to = widget.initial?.endPeriod ?? 1;
-  late TimeOfDay _start = _toTime(widget.initial?.start ?? '08:00');
-  late TimeOfDay _end = _toTime(widget.initial?.end ?? '09:35');
+  // 新建时间段时各项均无默认值，需用户选择/填写。
+  late int? _from = widget.initial?.startPeriod;
+  late int? _to = widget.initial?.endPeriod;
+  late TimeOfDay? _start =
+      widget.initial == null ? null : _toTime(widget.initial!.start);
+  late TimeOfDay? _end =
+      widget.initial == null ? null : _toTime(widget.initial!.end);
 
   static TimeOfDay _toTime(String s) {
     final p = s.split(':');
@@ -217,6 +220,11 @@ class _PeriodTimeDialogState extends State<_PeriodTimeDialog> {
 
   String _fmt(TimeOfDay t) =>
       '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+  void _snack(String msg) =>
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(msg)));
 
   @override
   Widget build(BuildContext context) {
@@ -230,11 +238,12 @@ class _PeriodTimeDialogState extends State<_PeriodTimeDialog> {
             children: [
               DropdownButton<int>(
                 value: _from,
+                hint: const Text('第X节'),
                 items: [
                   for (var i = 1; i <= widget.maxPeriods; i++)
                     DropdownMenuItem(value: i, child: Text('第$i节')),
                 ],
-                onChanged: (v) => setState(() => _from = v!),
+                onChanged: (v) => setState(() => _from = v),
               ),
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 8),
@@ -242,11 +251,12 @@ class _PeriodTimeDialogState extends State<_PeriodTimeDialog> {
               ),
               DropdownButton<int>(
                 value: _to,
+                hint: const Text('第X节'),
                 items: [
                   for (var i = 1; i <= widget.maxPeriods; i++)
                     DropdownMenuItem(value: i, child: Text('第$i节')),
                 ],
-                onChanged: (v) => setState(() => _to = v!),
+                onChanged: (v) => setState(() => _to = v),
               ),
             ],
           ),
@@ -254,18 +264,20 @@ class _PeriodTimeDialogState extends State<_PeriodTimeDialog> {
           ListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('开始时间'),
-            trailing: Text(_fmt(_start)),
+            trailing: Text(_start == null ? '选择时间' : _fmt(_start!)),
             onTap: () async {
-              final t = await showTimePicker(context: context, initialTime: _start);
+              final t = await showTimePicker(
+                  context: context, initialTime: _start ?? const TimeOfDay(hour: 8, minute: 0));
               if (t != null) setState(() => _start = t);
             },
           ),
           ListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('结束时间'),
-            trailing: Text(_fmt(_end)),
+            trailing: Text(_end == null ? '选择时间' : _fmt(_end!)),
             onTap: () async {
-              final t = await showTimePicker(context: context, initialTime: _end);
+              final t = await showTimePicker(
+                  context: context, initialTime: _end ?? const TimeOfDay(hour: 9, minute: 0));
               if (t != null) setState(() => _end = t);
             },
           ),
@@ -277,27 +289,35 @@ class _PeriodTimeDialogState extends State<_PeriodTimeDialog> {
             child: const Text('取消')),
         FilledButton(
           onPressed: () {
-            if (_to < _from) {
-              ScaffoldMessenger.of(context)
-                ..hideCurrentSnackBar()
-                ..showSnackBar(const SnackBar(content: Text('结束节次不能小于起始节次')));
+            final from = _from;
+            final to = _to;
+            final start = _start;
+            final end = _end;
+            if (from == null || to == null) {
+              _snack('请选择起始与结束节次');
               return;
             }
-            final start = _start.hour * 60 + _start.minute;
-            final end = _end.hour * 60 + _end.minute;
-            if (end <= start) {
-              ScaffoldMessenger.of(context)
-                ..hideCurrentSnackBar()
-                ..showSnackBar(const SnackBar(content: Text('结束时间需晚于开始时间')));
+            if (to < from) {
+              _snack('结束节次不能小于起始节次');
+              return;
+            }
+            if (start == null || end == null) {
+              _snack('请设置开始与结束时间');
+              return;
+            }
+            final startMin = start.hour * 60 + start.minute;
+            final endMin = end.hour * 60 + end.minute;
+            if (endMin <= startMin) {
+              _snack('结束时间需晚于开始时间');
               return;
             }
             Navigator.pop(
                 context,
                 PeriodTime(
-                  startPeriod: _from,
-                  endPeriod: _to,
-                  start: _fmt(_start),
-                  end: _fmt(_end),
+                  startPeriod: from,
+                  endPeriod: to,
+                  start: _fmt(start),
+                  end: _fmt(end),
                 ));
           },
           child: const Text('确定'),
