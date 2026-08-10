@@ -316,6 +316,9 @@ class _TimetableGridState extends State<TimetableGrid> {
           h += _mealHeight(x);
         }
         children.add(_spanBlock(entries, h, theme));
+        // 块覆盖第 p..maxEnd 节；第 maxEnd 节之后的餐条补在块下方，
+        // 否则该列少一段高度、与其它列错位（如课在饭前格子时餐条消失）。
+        children.addAll(_mealCells(maxEnd, colW, theme, showText: false));
         p = maxEnd + 1;
       } else {
         children.add(SizedBox(
