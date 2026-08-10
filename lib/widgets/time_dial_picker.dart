@@ -3,7 +3,9 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 // 表盘尺寸常量（顶层可见，供状态类与绘制器共用）。
-const double _dialSize = 260; // 表盘直径
+// 表盘直径需容纳：外圈数字半径(_outerR=118) + 选中圆最大半径(_dotR*1.25=25)，
+// 即至少 143*2=286；用 300 保证选中圆与底色圆不被边框裁切。
+const double _dialSize = 300; // 表盘直径
 const double _outerR = 118; // 外圈数字中心半径
 const double _innerR = 74; // 内圈数字中心半径
 const double _dotR = 20; // 数字背景圆半径
@@ -294,6 +296,22 @@ class _DialPainter extends CustomPainter {
     canvas.drawCircle(
         center, _centerR, Paint()..color = scheme.surfaceContainerHighest);
 
+    // 指针与中心圆点：先画，让选中数字盖在指针尖端之上，
+    // 避免指针线压住选中数字的边缘与文字。
+    final from = _handEnd(center, lastHourMode, lastHour, lastMinute);
+    final to = _handEnd(center, hourMode, hour, minute);
+    final end = Offset.lerp(from, to, anim)!;
+    canvas.drawLine(
+      center,
+      end,
+      Paint()
+        ..color = scheme.primary
+        ..strokeWidth = 2
+        ..strokeCap = StrokeCap.round,
+    );
+    canvas.drawCircle(center, 5, Paint()..color = scheme.primary);
+
+    // 数字（选中高亮）覆盖在指针之上。
     if (hourMode) {
       // 小时：内圈 1-12，外圈 13-24（顶部为 24）。
       for (var h = 1; h <= 12; h++) {
@@ -337,20 +355,6 @@ class _DialPainter extends CustomPainter {
         }
       }
     }
-
-    // 指针：从旧位置平滑滑动到新位置（跨模式也平滑过渡）。
-    final from = _handEnd(center, lastHourMode, lastHour, lastMinute);
-    final to = _handEnd(center, hourMode, hour, minute);
-    final end = Offset.lerp(from, to, anim)!;
-    canvas.drawLine(
-      center,
-      end,
-      Paint()
-        ..color = scheme.primary
-        ..strokeWidth = 2
-        ..strokeCap = StrokeCap.round,
-    );
-    canvas.drawCircle(center, 5, Paint()..color = scheme.primary);
   }
 
   void _drawNumber(
