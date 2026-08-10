@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/course.dart';
 
-/// 课程表中的单个课程方块：显示课程名、教师、上下课时间。
+/// 课程表中的单个课程方块：显示课程名、教师、上下课时间、地点。
 class CourseBlock extends StatelessWidget {
   final Course course;
   final ClassTime time;
@@ -21,6 +21,10 @@ class CourseBlock extends StatelessWidget {
     final textColor =
         color.computeLuminance() > 0.5 ? Colors.black87 : Colors.white;
     final teacher = (course.teacher ?? '').trim();
+    // 地点：单节覆盖优先，否则用课程总体地点。
+    final locText =
+        (time.location?.isEmpty ?? true) ? course.location : time.location!;
+    final location = locText.display.trim();
 
     return GestureDetector(
       onTap: onTap,
@@ -57,6 +61,13 @@ class CourseBlock extends StatelessWidget {
               '${time.start}-${time.end}',
               style: TextStyle(fontSize: 8, height: 1.2, color: textColor),
             ),
+            if (location.isNotEmpty)
+              Text(
+                location,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 8, height: 1.2, color: textColor),
+              ),
           ],
         ),
       ),

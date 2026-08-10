@@ -233,7 +233,13 @@ class _HomePageState extends State<HomePage> {
       if (_semesterMode) return true;
       return ScheduleMath.weekNumberOf(schedule, e.date!) == _week;
     }).toList()
-      ..sort((a, b) => a.exam!.date!.compareTo(b.exam!.date!));
+      // 考试安排按时间排序：先日期，同一天的再按考试开始时间，早的在上。
+      ..sort((a, b) {
+        final c = a.exam!.date!.compareTo(b.exam!.date!);
+        if (c != 0) return c;
+        return _examStartMinutes(a.exam!)
+            .compareTo(_examStartMinutes(b.exam!));
+      });
 
     return Scaffold(
       appBar: AppBar(
@@ -362,6 +368,19 @@ class _HomePageState extends State<HomePage> {
       ),
     );
   }
+}
+
+/// 解析考试时间文本（"HH:mm-HH:mm"）的开始分钟数；无法解析返回 0，
+/// 用于同日考试再按开始时间排序。
+int _examStartMinutes(ExamInfo e) {
+  final t = e.timeText;
+  if (t == null || t.isEmpty) return 0;
+  final parts = t.split('-').first.trim().split(':');
+  if (parts.length != 2) return 0;
+  final h = int.tryParse(parts[0]);
+  final m = int.tryParse(parts[1]);
+  if (h == null || m == null) return 0;
+  return h * 60 + m;
 }
 
 /// 主页底部的考试安排卡片区：单周模式下已按所选周过滤。
