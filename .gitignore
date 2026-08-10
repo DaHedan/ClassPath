@@ -33,6 +33,10 @@ migrate_working_dir/
 .pub/
 /build/
 
+# 本地 vendor 的第三方插件（file_picker 补丁版，配合 pubspec 的 path 依赖），
+# 不上传；clone 后需从 pub cache 手动复制恢复
+third_party/
+
 # Symbolication related
 app.*.symbols
 
