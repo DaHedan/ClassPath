@@ -54,6 +54,18 @@ static void my_application_activate(GApplication* application) {
 
   gtk_window_set_default_size(window, 1280, 720);
 
+  // 设置窗口图标：图标随 Flutter 资源打包，路径按可执行文件所在目录解析。
+  // 开发运行与安装后两种场景下，data/flutter_assets 都在可执行文件同级的
+  // data 目录里，因此相对路径稳定可用。
+  g_autofree gchar* exe_path = g_file_read_link("/proc/self/exe", NULL);
+  if (exe_path != NULL) {
+    g_autofree gchar* exe_dir = g_path_get_dirname(exe_path);
+    g_autofree gchar* icon_path = g_build_filename(
+        exe_dir, "data", "flutter_assets", "assets", "ClassPath_1024.png",
+        NULL);
+    gtk_window_set_icon_from_file(window, icon_path, NULL);
+  }
+
   g_autoptr(FlDartProject) project = fl_dart_project_new();
   fl_dart_project_set_dart_entrypoint_arguments(
       project, self->dart_entrypoint_arguments);

@@ -32,6 +32,31 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.3
+
+# 用 assets/ClassPath_1024.png 一次性生成各平台应用图标。
+# 运行：dart run flutter_launcher_icons
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/ClassPath_1024.png"
+  windows:
+    generate: true
+    image_path: "assets/ClassPath_1024.png"
+    icon_size: 256
+  macos:
+    generate: true
+    image_path: "assets/ClassPath_1024.png"
+  linux:
+    generate: true
+    image_path: "assets/ClassPath_1024.png"
+    icon_size: 512
+  web:
+    generate: true
+    image_path: "assets/ClassPath_1024.png"
 
 flutter:
   uses-material-design: true
+  # 图标也随应用打包，Linux 端用它作为 GTK 窗口图标。
+  assets:
+    - assets/ClassPath_1024.png
