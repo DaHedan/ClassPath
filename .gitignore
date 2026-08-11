@@ -83,3 +83,6 @@ macos/Flutter/flutter_build_mode
 
 # vscode
 .vscode/
+
+# icon
+assets/
