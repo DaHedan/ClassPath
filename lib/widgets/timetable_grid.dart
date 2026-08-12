@@ -921,7 +921,8 @@ class _TimetableGridState extends State<TimetableGrid>
                   course: group.first.course,
                   times: [for (final e in group) e.time],
                   showWeeks: widget.semesterMode,
-                  // 单周模式卡片更宽，字号略放大提升可读性。
+                  // 单周模式显示课程编号；卡片更宽，字号略放大提升可读性。
+                  showId: !widget.semesterMode,
                   scale: widget.semesterMode ? _scale : _scale * 1.2,
                   onTap: () =>
                       widget.onCourseTap(group.first.course, group.first.time),

@@ -18,6 +18,9 @@ class CourseBlock extends StatelessWidget {
   /// 是否显示上课周（本学期模式为 true，单周模式为 false）。
   final bool showWeeks;
 
+  /// 是否在课程名前显示课程编号（单周模式为 true）。
+  final bool showId;
+
   /// 网格缩放倍率：随缩放等比例放大字号与内边距。
   final double scale;
 
@@ -27,6 +30,7 @@ class CourseBlock extends StatelessWidget {
     required this.times,
     required this.onTap,
     this.showWeeks = false,
+    this.showId = false,
     this.scale = 1.0,
   });
 
@@ -115,7 +119,7 @@ class CourseBlock extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text(
-              course.name,
+              showId ? '${course.id} ${course.name}' : course.name,
               textAlign: TextAlign.center,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
@@ -143,7 +147,13 @@ class CourseBlock extends StatelessWidget {
                 line,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 8 * scale, height: 1.2, color: textColor),
+                style: TextStyle(
+                  fontSize: 8 * scale,
+                  height: 1.2,
+                  color: textColor,
+                  // 单周模式的地点是唯一信息行，加粗突出。
+                  fontWeight: showWeeks ? null : FontWeight.w600,
+                ),
               ),
           ],
         ),
