@@ -171,17 +171,20 @@ class _ScheduleImportPageState extends State<ScheduleImportPage> {
             subtitle: '选择「课途」导出的课程表文件',
             onTap: _pickJsonFile,
           ),
-          _option(
-            icon: Icons.image_outlined,
-            title: '从二维码图片导入',
-            subtitle: '选择一张包含课程表二维码的图片',
-            onTap: _pickQrImage,
-          ),
+          // 手机端不单独提供「二维码图片导入」：从二维码导入直接进扫码页，
+          // 扫码页左下角可从相册选图解码。
+          if (!_isMobile)
+            _option(
+              icon: Icons.image_outlined,
+              title: '从二维码图片导入',
+              subtitle: '选择一张包含课程表二维码的图片',
+              onTap: _pickQrImage,
+            ),
           if (_isMobile)
             _option(
               icon: Icons.qr_code_scanner,
-              title: '摄像头扫描',
-              subtitle: '用相机扫描另一台设备上的二维码',
+              title: '从二维码导入',
+              subtitle: '扫描另一台设备上的二维码',
               onTap: _scanCamera,
             ),
           const SizedBox(height: 12),
