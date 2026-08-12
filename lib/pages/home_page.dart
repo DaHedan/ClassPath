@@ -169,7 +169,6 @@ class _HomePageState extends State<HomePage> {
     final w = await showWeekPicker(
       context,
       totalWeeks: s.totalWeeks,
-      current: _week,
       todayWeek: ScheduleMath.currentWeekOfNow(s),
     );
     if (w != null && mounted) setState(() => _week = w);

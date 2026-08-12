@@ -558,6 +558,15 @@ class _TimetableGridState extends State<TimetableGrid>
         child: body,
       );
     }
+    // 非当天（虚化的邻天）卡片：点击整张卡片直接翻到那一天；
+    // 用 IgnorePointer 屏蔽卡内课程格子的点击，避免误打开课程详情。
+    if (d.abs() > 0.001) {
+      body = GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => _animatePageTo((w - 1).toDouble()),
+        child: IgnorePointer(child: body),
+      );
+    }
     return Positioned(
       left: vw / 2 + dx - cardW / 2,
       top: 0,
@@ -588,7 +597,11 @@ class _TimetableGridState extends State<TimetableGrid>
         alignment: Alignment.center,
         child: Opacity(
           opacity: opacity,
-          child: Stack(
+          // 点击占位卡直接切换周次，无需去点模式栏里的周次选择按钮。
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => _onEdgeCardTap(label),
+            child: Stack(
             children: [
               // 半透明底
               Positioned.fill(
@@ -646,6 +659,7 @@ class _TimetableGridState extends State<TimetableGrid>
                 },
               ),
             ],
+            ),
           ),
         ),
       ),
@@ -814,6 +828,17 @@ class _TimetableGridState extends State<TimetableGrid>
 
   void _onPageDragCancel() {
     _animatePageTo(_pageValue.round().clamp(0, 6).toDouble());
+  }
+
+  /// 点击「上一周 / 下一周」占位卡直接切换周次（带边界校验）。
+  void _onEdgeCardTap(String label) {
+    if (label == '上一周') {
+      if (widget.week > 1) _switchWeek(widget.week - 1, 6);
+    } else {
+      if (widget.week < widget.schedule.totalWeeks) {
+        _switchWeek(widget.week + 1, 0);
+      }
+    }
   }
 
   void _animatePageTo(double target) {
