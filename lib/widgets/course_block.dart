@@ -24,6 +24,9 @@ class CourseBlock extends StatelessWidget {
   /// 网格缩放倍率：随缩放等比例放大字号与内边距。
   final double scale;
 
+  /// 单周模式（showId）卡片更宽，文字整体放大一档。
+  double get _fontK => showId ? 1.2 : 1.0;
+
   const CourseBlock({
     super.key,
     required this.course,
@@ -125,39 +128,71 @@ class CourseBlock extends StatelessWidget {
                     horizontal: 2 * scale, vertical: 3 * scale),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
+                  // 撑满整块宽度 + 各行 textAlign 居中，避免 Stack 默认
+                  // topStart 把较窄的文字堆到左侧。
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text(
-                      showId ? '${course.id} ${course.name}' : course.name,
-                      textAlign: TextAlign.center,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 10.5 * scale,
-                        fontWeight: FontWeight.w600,
-                        height: 1.2,
-                        color: textColor,
-                      ),
-                    ),
+                    showId
+                        ? Text.rich(
+                            TextSpan(
+                              children: [
+                                // 编号用常规字重，与课程名区分开。
+                                TextSpan(text: '${course.id} '),
+                                TextSpan(
+                                  text: course.name,
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w600),
+                                ),
+                              ],
+                            ),
+                            textAlign: TextAlign.center,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 10.5 * scale * _fontK,
+                              height: 1.2,
+                              color: textColor,
+                            ),
+                          )
+                        : Text(
+                            course.name,
+                            textAlign: TextAlign.center,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 10.5 * scale,
+                              fontWeight: FontWeight.w600,
+                              height: 1.2,
+                              color: textColor,
+                            ),
+                          ),
                     if (teacher.isNotEmpty)
                       Text(
                         teacher,
+                        textAlign: TextAlign.center,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                            fontSize: 8.5 * scale, height: 1.2, color: textColor),
+                            fontSize: 8.5 * scale * _fontK,
+                            height: 1.2,
+                            color: textColor),
                       ),
                     Text(
                       timeText,
+                      textAlign: TextAlign.center,
                       style: TextStyle(
-                          fontSize: 8 * scale, height: 1.2, color: textColor),
+                          fontSize: 8 * scale * _fontK,
+                          height: 1.2,
+                          color: textColor),
                     ),
                     for (final line in infoLines)
                       Text(
                         line,
+                        textAlign: TextAlign.center,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: 8 * scale,
+                          fontSize: 8 * scale * _fontK,
                           height: 1.2,
                           color: textColor,
                           // 单周模式的地点是唯一信息行，加粗突出。
