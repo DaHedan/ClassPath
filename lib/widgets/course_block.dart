@@ -85,8 +85,31 @@ class CourseBlock extends StatelessWidget {
         padding: EdgeInsets.symmetric(
             horizontal: 2 * scale, vertical: 3 * scale),
         decoration: BoxDecoration(
-          color: color,
+          // 立体感：上亮下暗的纵向渐变 + 顶部高光边 + 底部柔投影。
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color.lerp(color, Colors.white, 0.18)!,
+              color,
+              Color.lerp(color, Colors.black, 0.16)!,
+            ],
+            stops: const [0.0, 0.5, 1.0],
+          ),
           borderRadius: BorderRadius.circular(6 * scale),
+          border: Border(
+            top: BorderSide(
+              color: Colors.white.withValues(alpha: 0.3),
+              width: 1,
+            ),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.2),
+              blurRadius: 3 * scale,
+              offset: Offset(0, 2 * scale),
+            ),
+          ],
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
