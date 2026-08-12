@@ -61,6 +61,9 @@ class TimetableGrid extends StatefulWidget {
   final TimetableGridController controller;
   final void Function(Course course, ClassTime time) onCourseTap;
 
+  /// 单周模式在周一/周日边界继续滑动时切换周次（上一周/下一周）。
+  final ValueChanged<int>? onWeekChange;
+
   /// 国务院节假日调休缓存：date("YYYY-MM-DD") -> 是否放假。
   final Map<String, bool> holidays;
 
@@ -73,6 +76,7 @@ class TimetableGrid extends StatefulWidget {
     required this.controller,
     required this.onCourseTap,
     required this.holidays,
+    this.onWeekChange,
   });
 
   @override
@@ -121,9 +125,6 @@ class _TimetableGridState extends State<TimetableGrid>
   double _pageFrom = 0;
   double _pageAnimTarget = 0;
 
-  /// 水平拖动的起始页（拖动过程中连续更新 _pageValue）。
-  double? _dragStartPage;
-
   /// 相邻卡片中心的间距（由布局阶段确定，拖动回调复用）。
   double _cardSpacing = 300;
 
@@ -133,6 +134,10 @@ class _TimetableGridState extends State<TimetableGrid>
 
   /// 当天卡片是否已按当前时间定位过纵向位置（切换课程表/周次/进入聚焦视图后重置）。
   bool _focusPositionsApplied = false;
+
+  /// 是否跳过本周次切换后的自动居中：在周一/周日边界滑动切换周次时，
+  /// 视图应停在边界日而不是跳回「今天」。
+  bool _suppressAutoCenterOnce = false;
 
   double get _labelW => baseLabelW * _scale;
   double get _colW => baseColW * _scale;
@@ -169,8 +174,14 @@ class _TimetableGridState extends State<TimetableGrid>
     if (oldWidget.schedule.id != widget.schedule.id ||
         (!widget.semesterMode && oldWidget.week != widget.week) ||
         (oldWidget.semesterMode && !widget.semesterMode)) {
-      _focusPositionsApplied = false;
-      _centerTodayAfterFrame();
+      if (_suppressAutoCenterOnce) {
+        // 边界滑动切换周次：保持当前横向页（边界日）与纵向位置不变，
+        // 既不跳回「今天」，也不重新定位纵向滚动。
+        _suppressAutoCenterOnce = false;
+      } else {
+        _focusPositionsApplied = false;
+        _centerTodayAfterFrame();
+      }
     }
   }
 
@@ -459,6 +470,18 @@ class _TimetableGridState extends State<TimetableGrid>
           _buildDayCard(w, d, t, areaW, cardW, theme, headerWeek, cellMap),
         ));
       }
+      // 周一左侧、周日右侧的「上一周 / 下一周」占位卡：平时作为边界预览，
+      // 越界拉出后继续滑动即可切换周次。
+      const edgeWeeks = <int, String>{-1: '上一周', 7: '下一周'};
+      for (final e in edgeWeeks.entries) {
+        final d = e.key - page;
+        if (d.abs() > 1.15) continue; // 只在边界附近可见
+        final t = d.abs().clamp(0.0, 1.0);
+        cards.add((
+          d.abs(),
+          _buildWeekEdgeCard(e.value, d, t, areaW, cardW, theme),
+        ));
+      }
       // 距离中心越远越先画，最后画的「当天」盖在邻天之上形成遮挡。
       cards.sort((a, b) => b.$1.compareTo(a.$1));
       if (!_focusPositionsApplied) {
@@ -497,9 +520,18 @@ class _TimetableGridState extends State<TimetableGrid>
                     child: SizedBox(
                       width: areaW,
                       height: contentH,
-                      child: Stack(
-                        clipBehavior: Clip.none,
-                        children: [for (final c in cards) c.$2],
+                      // 切换周次时（key 变化）新旧周整体淡入淡出一次，
+                      // 替代“从边界跨页滑过整周”的连续手势动画。
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 240),
+                        switchInCurve: Curves.easeOut,
+                        switchOutCurve: Curves.easeIn,
+                        child: Stack(
+                          key: ValueKey(
+                              '${widget.schedule.id}-week${widget.week}'),
+                          clipBehavior: Clip.none,
+                          children: [for (final c in cards) c.$2],
+                        ),
                       ),
                     ),
                   ),
@@ -535,6 +567,87 @@ class _TimetableGridState extends State<TimetableGrid>
         scale: scale,
         alignment: Alignment.center,
         child: Opacity(opacity: opacity, child: body),
+      ),
+    );
+  }
+
+  /// 周一左侧 / 周日右侧的「上一周 / 下一周」占位卡：与普通卡片同尺寸、
+  /// 同运动轨迹，内容只显示箭头与文字提示。
+  Widget _buildWeekEdgeCard(String label, double d, double t, double vw,
+      double cardW, ThemeData theme) {
+    final dx = d * _cardSpacing;
+    final scale = 1 - 0.1 * t;
+    final opacity = 1 - 0.3 * t;
+    return Positioned(
+      left: vw / 2 + dx - cardW / 2,
+      top: 0,
+      bottom: 0,
+      width: cardW,
+      child: Transform.scale(
+        scale: scale,
+        alignment: Alignment.center,
+        child: Opacity(
+          opacity: opacity,
+          child: Stack(
+            children: [
+              // 半透明底
+              Positioned.fill(
+                child: Container(
+                  margin: EdgeInsets.symmetric(horizontal: 5 * _scale),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerLowest
+                        .withValues(alpha: 0.7),
+                    borderRadius: BorderRadius.circular(16 * _scale),
+                    border: Border.all(
+                      color: theme.colorScheme.outlineVariant,
+                      width: 1,
+                    ),
+                  ),
+                ),
+              ),
+              // 提示文字放在「屏幕纵向中间」：卡片高度覆盖整周内容
+              // （可能远超屏幕），卡片正中间通常在视野外。监听纵向滚动，
+              // 让文字始终停留在屏幕可见区域的正中间。
+              ListenableBuilder(
+                listenable: _dayVScroll,
+                builder: (_, __) {
+                  final scroll =
+                      _dayVScroll.hasClients ? _dayVScroll.offset : 0.0;
+                  final viewportH = _dayVScroll.hasClients
+                      ? _dayVScroll.position.viewportDimension
+                      : 0.0;
+                  final centerY = scroll + viewportH / 2;
+                  return Positioned(
+                    top: centerY - 26 * _scale,
+                    left: 0,
+                    right: 0,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          label == '上一周'
+                              ? Icons.chevron_left
+                              : Icons.chevron_right,
+                          size: 28,
+                          color: theme.colorScheme.outline,
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          label,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: theme.colorScheme.outline,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -636,30 +749,70 @@ class _TimetableGridState extends State<TimetableGrid>
 
   // ---- 聚焦视图：横向翻页（拖动 + 动画） ----
 
-  void _onPageDragStart(DragStartDetails d) => _dragStartPage = _pageValue;
+  void _onPageDragStart(DragStartDetails d) {
+    // 按住时立刻停掉上一段吸附动画，避免动画与拖拽互相拉扯。
+    _pageAnim.stop();
+  }
 
   void _onPageDragUpdate(DragUpdateDetails d) {
-    final start = _dragStartPage;
-    if (start == null) return;
+    // 累计每次移动增量：卡片严格跟随手指滑动距离（1:1 跟手）；
+    // 允许越界到 [-1, 7]，把「上一周 / 下一周」占位卡拉出来。
     setState(() {
-      _pageValue = (start - d.delta.dx / _cardSpacing).clamp(0.0, 6.0);
+      _pageValue = (_pageValue - d.delta.dx / _cardSpacing).clamp(-1.0, 7.0);
     });
   }
 
   void _onPageDragEnd(DragEndDetails d) {
-    final start = _dragStartPage ?? _pageValue;
-    _dragStartPage = null;
-    var target = _pageValue.round().clamp(0, 6);
     final v = d.velocity.pixelsPerSecond.dx;
-    // 快速滑动时额外多翻一页，方向与滑动方向一致。
-    if (v.abs() > 500 && start.round() == target) {
-      target = (v < 0 ? target + 1 : target - 1).clamp(0, 6);
+    // 越过周一左侧：切上一周，落到上周的周日（page 6）。
+    if (_pageValue < 0) {
+      if (widget.onWeekChange != null &&
+          widget.week > 1 &&
+          (_pageValue <= -0.35 || v > 700)) {
+        _switchWeek(widget.week - 1, 6);
+      } else {
+        _animatePageTo(0);
+      }
+      return;
     }
-    _animatePageTo(target.toDouble());
+    // 越过周日右侧：切下一周，落到下周的周一（page 0）。
+    if (_pageValue > 6) {
+      if (widget.onWeekChange != null &&
+          widget.week < widget.schedule.totalWeeks &&
+          (_pageValue >= 6.35 || v < -700)) {
+        _switchWeek(widget.week + 1, 0);
+      } else {
+        _animatePageTo(6);
+      }
+      return;
+    }
+    // 正常范围：按「拖动距离」吸附到最近一页，拖多远停多远；
+    // 松手带明显速度时向滑动方向让半页再取整（轻甩即可翻一页）。
+    var target = _pageValue.round();
+    if (v.abs() > 250) {
+      target = (v < 0 ? _pageValue + 0.5 : _pageValue - 0.5).round();
+    }
+    _animatePageTo(target.clamp(0, 6).toDouble());
+  }
+
+  /// 边界滑动切换周次：切到 [newWeek]，并瞬间把视图落到 [landPage] 页
+  /// （上一周落在周日、下一周落在周一）。
+  ///
+  /// 不通过 `_animatePageTo` 从边界跨页滑过去——那会在周一/周日两端之间
+  /// 快速掠过整周卡片；改为直接落位 + AnimatedSwitcher 对新旧周做整体
+  /// 淡入淡出，切换周次是独立的一次过渡，不与翻天的手势连续。
+  void _switchWeek(int newWeek, double landPage) {
+    if (widget.onWeekChange == null) {
+      _animatePageTo(landPage > 3 ? 0 : 6);
+      return;
+    }
+    _suppressAutoCenterOnce = true;
+    _pageAnim.stop();
+    setState(() => _pageValue = landPage);
+    widget.onWeekChange?.call(newWeek);
   }
 
   void _onPageDragCancel() {
-    _dragStartPage = null;
     _animatePageTo(_pageValue.round().clamp(0, 6).toDouble());
   }
 
@@ -670,6 +823,11 @@ class _TimetableGridState extends State<TimetableGrid>
     }
     _pageFrom = _pageValue;
     _pageAnimTarget = target;
+    // 翻页距离越长动画越久：近页干脆利落，连翻多页时匀速舒展不僵硬。
+    final dist = (target - _pageFrom).abs();
+    _pageAnim.duration = Duration(
+      milliseconds: (200 + 130 * dist).round().clamp(200, 700),
+    );
     _pageAnim.forward(from: 0);
   }
 

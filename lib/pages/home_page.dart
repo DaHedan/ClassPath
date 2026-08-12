@@ -342,6 +342,13 @@ class _HomePageState extends State<HomePage> {
               controller: _gridController,
               onCourseTap: _openCourse,
               holidays: app.holidays,
+              // 单周模式在周一/周日边界继续滑动时切换周次。
+              onWeekChange: (w) {
+                if (!mounted) return;
+                final s = context.read<AppState>().activeSchedule;
+                if (s == null) return;
+                setState(() => _week = w.clamp(1, s.totalWeeks));
+              },
             ),
           ),
           _ExamSection(courses: examCourses, onCourseTap: _openCourseDetail),
