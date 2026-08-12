@@ -308,6 +308,11 @@ class _HomePageState extends State<HomePage> {
 
     return Scaffold(
       appBar: AppBar(
+        // 彻底关闭 M3 的“滚动到标题栏下方”变色效果：
+        // 固定背景色 + 禁止表面色调叠加 + 无滚动抬升，滚动时颜色恒定。
+        scrolledUnderElevation: 0,
+        backgroundColor: theme.colorScheme.surface,
+        surfaceTintColor: Colors.transparent,
         title: _buildTitle(schedule),
         actions: [
           IconButton(
