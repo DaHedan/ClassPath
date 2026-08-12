@@ -383,25 +383,31 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  /// 网格上方的模式切换条：单周 / 本学期，单周模式下显示周次选择。
+  /// 网格上方的模式切换条：单周 / 本学期切换按钮靠左，单周模式下
+  /// 「第几周」选择器在同一行、按钮右侧。
   Widget _buildModeBar(ThemeData theme, Schedule schedule) {
     final app = context.read<AppState>();
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-      child: Column(
+      child: Row(
         children: [
           SegmentedButton<TimetableMode>(
             showSelectedIcon: false,
+            // 紧凑样式：压缩内边距与字号，缩小按钮占用。
+            style: SegmentedButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              textStyle: const TextStyle(fontSize: 12),
+            ),
             segments: const [
               ButtonSegment(
                 value: TimetableMode.currentWeek,
-                label: Text('单周模式'),
-                icon: Icon(Icons.view_week_outlined, size: 16),
+                label: Text('单周'),
               ),
               ButtonSegment(
                 value: TimetableMode.semester,
-                label: Text('本学期模式'),
-                icon: Icon(Icons.calendar_month_outlined, size: 16),
+                label: Text('本学期'),
               ),
             ],
             selected: {app.settings.mode},
@@ -409,34 +415,44 @@ class _HomePageState extends State<HomePage> {
                 app.updateSettings(app.settings.copyWith(mode: v.first)),
           ),
           if (!_semesterMode) ...[
-            const SizedBox(height: 6),
-            InkWell(
-              onTap: _switchWeek,
-              borderRadius: BorderRadius.circular(8),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.today_outlined,
-                      size: 15,
-                      color: theme.colorScheme.primary,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      '第$_week周 · ${ScheduleMath.weekRangeText(schedule, _week)}',
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w500,
+            const SizedBox(width: 8),
+            Expanded(
+              child: InkWell(
+                onTap: _switchWeek,
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.today_outlined,
+                        size: 15,
                         color: theme.colorScheme.primary,
                       ),
-                    ),
-                    const Icon(Icons.expand_more, size: 18, color: Colors.grey),
-                  ],
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text(
+                          '第$_week周 · ${ScheduleMath.weekRangeText(schedule, _week)}',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w500,
+                            color: theme.colorScheme.primary,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const Icon(
+                        Icons.expand_more,
+                        size: 18,
+                        color: Colors.grey,
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -460,19 +476,28 @@ int _examStartMinutes(ExamInfo e) {
   return h * 60 + m;
 }
 
-/// 主页底部的考试安排卡片区：单周模式下已按所选周过滤。
-class _ExamSection extends StatelessWidget {
+/// 主页底部的考试安排面板：单周模式下已按所选周过滤。
+/// 点击标题行可收起为一行；收起后考试科目以气泡形式显示在「考试安排」右侧。
+class _ExamSection extends StatefulWidget {
   final List<Course> courses;
   final ValueChanged<Course> onCourseTap;
 
   const _ExamSection({required this.courses, required this.onCourseTap});
 
   @override
+  State<_ExamSection> createState() => _ExamSectionState();
+}
+
+class _ExamSectionState extends State<_ExamSection> {
+  bool _expanded = true;
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final courses = widget.courses;
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainerLow,
         border: Border(
@@ -482,40 +507,108 @@ class _ExamSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(
-                Icons.assignment_outlined,
-                size: 16,
-                color: theme.colorScheme.primary,
+          // 标题行：点击切换展开/收起；收起时科目以气泡显示在右侧。
+          InkWell(
+            onTap: () => setState(() => _expanded = !_expanded),
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.assignment_outlined,
+                    size: 16,
+                    color: theme.colorScheme.primary,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '考试安排',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _expanded
+                        ? const SizedBox.shrink()
+                        : SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: [
+                                for (final c in courses) _examChip(theme, c),
+                              ],
+                            ),
+                          ),
+                  ),
+                  Icon(
+                    _expanded ? Icons.expand_less : Icons.expand_more,
+                    size: 18,
+                    color: theme.colorScheme.outline,
+                  ),
+                ],
               ),
-              const SizedBox(width: 6),
+            ),
+          ),
+          if (_expanded) ...[
+            const SizedBox(height: 4),
+            if (courses.isEmpty)
               Text(
-                '考试安排',
+                '暂无考试安排',
                 style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: theme.colorScheme.primary,
+                  fontSize: 12,
+                  color: theme.colorScheme.outline,
+                ),
+              )
+            else
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 150),
+                child: SingleChildScrollView(
+                  child: Column(
+                    children: [for (final c in courses) _examCard(theme, c)],
+                  ),
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// 收起状态下的科目气泡：课程色浅底 + 色点 + 名称，点击打开课程详情。
+  Widget _examChip(ThemeData theme, Course c) {
+    final color = Color(c.colorValue);
+    return Padding(
+      padding: const EdgeInsets.only(right: 6),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: () => widget.onCourseTap(c),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.14),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 6,
+                height: 6,
+                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                c.name,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          if (courses.isEmpty)
-            Text(
-              '暂无考试安排',
-              style: TextStyle(fontSize: 12, color: theme.colorScheme.outline),
-            )
-          else
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 150),
-              child: SingleChildScrollView(
-                child: Column(
-                  children: [for (final c in courses) _examCard(theme, c)],
-                ),
-              ),
-            ),
-        ],
+        ),
       ),
     );
   }
@@ -526,7 +619,7 @@ class _ExamSection extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 6),
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
-        onTap: () => onCourseTap(c),
+        onTap: () => widget.onCourseTap(c),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           child: Row(
