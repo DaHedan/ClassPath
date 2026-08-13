@@ -27,6 +27,9 @@ dependencies:
   image: ^4.9.1
   mobile_scanner: ^7.4.0
   archive: ^4.0.9
+  # 系统分享面板：手机端把课程表 json / 二维码图片发送到其它应用。
+  # 12.x：兼容 vendor 版 file_picker 的 win32 ^5.x 约束（13.x 需要 win32 ^6）。
+  share_plus: ^12.0.2
 
 dev_dependencies:
   flutter_test:
