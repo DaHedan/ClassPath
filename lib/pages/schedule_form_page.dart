@@ -27,11 +27,16 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
   late int _dinnerAfter;
   late List<RescheduleDay> _reschedules; // 调休安排：补班日 -> 使用原本哪天的课
 
+  /// 是否有未保存的修改：退出时（返回/手势/ESC）弹出确认。
+  bool _dirty = false;
+
   @override
   void initState() {
     super.initState();
     final s = widget.schedule;
     _nameCtrl = TextEditingController(text: s?.name ?? '');
+    // 名称被编辑即视为有未保存修改（初始值写入后才挂监听）。
+    _nameCtrl.addListener(_markDirty);
     _totalWeeks = s?.totalWeeks;
     _firstMonday = s?.firstMonday;
     _periodsPerDay = s?.periodsPerDay;
@@ -67,6 +72,30 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
     ..hideCurrentSnackBar()
     ..showSnackBar(SnackBar(content: Text(msg)));
 
+  void _markDirty() {
+    if (!_dirty) setState(() => _dirty = true);
+  }
+
+  /// 返回确认：有未保存修改时弹出，确认后才真正退出。
+  Future<bool> _confirmDiscard() async {
+    final leave = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(widget.schedule == null ? '课程表尚未保存' : '修改尚未保存'),
+        content: const Text('确定要放弃并退出吗？'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('继续编辑')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('放弃修改')),
+        ],
+      ),
+    );
+    return leave == true;
+  }
+
   Future<void> _editBuilding(Building building) async {
     final result = await Navigator.push<Building>(
       context,
@@ -82,6 +111,7 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
       setState(() {
         final i = _buildings.indexOf(building);
         if (i >= 0) _buildings[i] = result;
+        _dirty = true;
       });
     }
   }
@@ -97,7 +127,12 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
         ),
       ),
     );
-    if (result != null) setState(() => _buildings.add(result));
+    if (result != null) {
+      setState(() {
+        _buildings.add(result);
+        _dirty = true;
+      });
+    }
   }
 
   void _save() async {
@@ -177,6 +212,8 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
       // 先等主页完成重建与布局，再退出表单页：
       // 若课程表网格在路由退出动画期间才首次构建/滚动定位，
       // 会与桌面端鼠标事件处理竞争，触发框架的 mouse_tracker 断言。
+      // 同时清除未保存标记，让 PopScope 放行退出。
+      setState(() => _dirty = false);
       await WidgetsBinding.instance.endOfFrame;
       if (mounted) Navigator.pop(context);
     }
@@ -186,8 +223,19 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final app = context.watch<AppState>();
-    return Scaffold(
-      appBar: AppBar(title: Text(widget.schedule == null ? '新建课程表' : '编辑课程表')),
+    return PopScope(
+      canPop: !_dirty,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final leave = await _confirmDiscard();
+        if (leave && mounted) {
+          setState(() => _dirty = false);
+          Navigator.pop(context);
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+            title: Text(widget.schedule == null ? '新建课程表' : '编辑课程表')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -207,7 +255,10 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
             1,
             53,
             (v) {
-              setState(() => _totalWeeks = v);
+              setState(() {
+                _totalWeeks = v;
+                _dirty = true;
+              });
               _refreshHolidays();
             },
           ),
@@ -219,6 +270,7 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
             20,
             (v) => setState(() {
               _periodsPerDay = v;
+              _dirty = true;
               // 餐后节数超出新范围时重置为「不设置」。
               if (_lunchAfter > v) _lunchAfter = 0;
               if (_dinnerAfter > v) _dinnerAfter = 0;
@@ -241,7 +293,10 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
                 selectableDayPredicate: (day) => day.weekday == DateTime.monday,
               );
               if (d != null) {
-                setState(() => _firstMonday = ScheduleMath.dateOnly(d));
+                setState(() {
+                  _firstMonday = ScheduleMath.dateOnly(d);
+                  _dirty = true;
+                });
                 _refreshHolidays();
               }
             },
@@ -317,13 +372,19 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
             theme,
             '午餐',
             _lunchAfter,
-            (v) => setState(() => _lunchAfter = v),
+            (v) => setState(() {
+              _lunchAfter = v;
+              _dirty = true;
+            }),
           ),
           _mealDropdown(
             theme,
             '晚餐',
             _dinnerAfter,
-            (v) => setState(() => _dinnerAfter = v),
+            (v) => setState(() {
+              _dinnerAfter = v;
+              _dirty = true;
+            }),
           ),
           const Divider(height: 32),
           _rescheduleSection(theme, app),
@@ -340,6 +401,7 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
             child: const Text('保存'),
           ),
         ),
+      ),
       ),
     );
   }
@@ -558,6 +620,7 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
                 if (sel.isNotEmpty) {
                   _reschedules.add(RescheduleDay(date: dateStr, source: sel));
                 }
+                _dirty = true;
               }),
             ),
           ],
@@ -578,6 +641,7 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
         target.periodTimes
           ..clear()
           ..addAll(picked.periodTimes.map((e) => e.copy()));
+        _dirty = true;
       });
     }
   }
@@ -628,6 +692,7 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
     }
     setState(() {
       _buildings = schedule.buildings.map((b) => b.copy()).toList();
+      _dirty = true;
     });
   }
 

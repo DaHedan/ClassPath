@@ -38,6 +38,9 @@ class _CourseFormPageState extends State<CourseFormPage> {
   TimeOfDay? _examStart;
   TimeOfDay? _examEnd;
 
+  /// 是否有未保存的修改：退出时（返回/手势/ESC）弹出确认。
+  bool _dirty = false;
+
   Schedule get schedule => widget.schedule;
 
   @override
@@ -63,6 +66,18 @@ class _CourseFormPageState extends State<CourseFormPage> {
     _examLocationCtrl.text = c?.exam?.location ?? '';
     _examSeatCtrl.text = c?.exam?.seat ?? '';
     _noteCtrl.text = c?.note ?? '';
+    // 任一文本字段被编辑即视为有未保存修改（初始值写入后才挂监听）。
+    for (final c in [
+      _idCtrl,
+      _nameCtrl,
+      _teacherCtrl,
+      _roomCtrl,
+      _examLocationCtrl,
+      _examSeatCtrl,
+      _noteCtrl,
+    ]) {
+      c.addListener(_markDirty);
+    }
   }
 
   @override
@@ -107,6 +122,30 @@ class _CourseFormPageState extends State<CourseFormPage> {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(content: Text(msg)));
+
+  void _markDirty() {
+    if (!_dirty) setState(() => _dirty = true);
+  }
+
+  /// 返回确认：有未保存修改时弹出，确认后才真正退出。
+  Future<bool> _confirmDiscard() async {
+    final leave = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(widget.course == null ? '课程尚未保存' : '修改尚未保存'),
+        content: const Text('确定要放弃并退出吗？'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('继续编辑')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('放弃修改')),
+        ],
+      ),
+    );
+    return leave == true;
+  }
 
   bool _weeksOverlap(List<int> a, List<int> b) {
     final set = b.toSet();
@@ -258,6 +297,8 @@ class _CourseFormPageState extends State<CourseFormPage> {
     if (mounted) {
       // 先等主页网格完成重建与布局再退出，避免新课程格子
       // 在路由退出动画期间首次构建而触发桌面端 mouse_tracker 断言。
+      // 同时清除未保存标记，让 PopScope 放行退出。
+      setState(() => _dirty = false);
       await WidgetsBinding.instance.endOfFrame;
       if (mounted) Navigator.pop(context);
     }
@@ -270,7 +311,12 @@ class _CourseFormPageState extends State<CourseFormPage> {
       context: context,
       builder: (_) => _ColorPickerDialog(current: _colorValue),
     );
-    if (result != null) setState(() => _colorValue = result);
+    if (result != null) {
+      setState(() {
+        _colorValue = result;
+        _dirty = true;
+      });
+    }
   }
 
   Future<void> _addClassTime() async {
@@ -283,7 +329,10 @@ class _CourseFormPageState extends State<CourseFormPage> {
     );
     if (result != null) {
       // 上课周在对话框内设置：新建默认未选择，需手动勾选。
-      setState(() => _classTimes.add(result));
+      setState(() {
+        _classTimes.add(result);
+        _dirty = true;
+      });
     }
   }
 
@@ -297,7 +346,10 @@ class _CourseFormPageState extends State<CourseFormPage> {
       ),
     );
     if (result != null) {
-      setState(() => _classTimes[index] = result);
+      setState(() {
+        _classTimes[index] = result;
+        _dirty = true;
+      });
     }
   }
 
@@ -381,7 +433,12 @@ class _CourseFormPageState extends State<CourseFormPage> {
       firstDate: DateTime(2000),
       lastDate: DateTime(2100),
     );
-    if (d != null) setState(() => _examDate = ScheduleMath.dateOnly(d));
+    if (d != null) {
+      setState(() {
+        _examDate = ScheduleMath.dateOnly(d);
+        _dirty = true;
+      });
+    }
   }
 
   /// 解析已有考试时间文本（"HH:mm-HH:mm"），失败则视为未设置。
@@ -414,7 +471,12 @@ class _CourseFormPageState extends State<CourseFormPage> {
       context: context,
       initialTime: _examStart ?? const TimeOfDay(hour: 9, minute: 0),
     );
-    if (t != null) setState(() => _examStart = t);
+    if (t != null) {
+      setState(() {
+        _examStart = t;
+        _dirty = true;
+      });
+    }
   }
 
   Future<void> _pickExamEnd() async {
@@ -422,7 +484,12 @@ class _CourseFormPageState extends State<CourseFormPage> {
       context: context,
       initialTime: _examEnd ?? const TimeOfDay(hour: 11, minute: 0),
     );
-    if (t != null) setState(() => _examEnd = t);
+    if (t != null) {
+      setState(() {
+        _examEnd = t;
+        _dirty = true;
+      });
+    }
   }
 
   // ---------- 构建 ----------
@@ -431,10 +498,20 @@ class _CourseFormPageState extends State<CourseFormPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final buildings = schedule.buildings;
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.course == null ? '添加课程' : '编辑课程'),
-      ),
+    return PopScope(
+      canPop: !_dirty,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final leave = await _confirmDiscard();
+        if (leave && mounted) {
+          setState(() => _dirty = false);
+          Navigator.pop(context);
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(widget.course == null ? '添加课程' : '编辑课程'),
+        ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -513,7 +590,10 @@ class _CourseFormPageState extends State<CourseFormPage> {
                 for (var i = 0; i < buildings.length; i++)
                   DropdownMenuItem(value: i, child: Text(buildings[i].name)),
               ],
-              onChanged: (v) => setState(() => _buildingIndex = v ?? -1),
+              onChanged: (v) => setState(() {
+                _buildingIndex = v ?? -1;
+                _dirty = true;
+              }),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -562,9 +642,17 @@ class _CourseFormPageState extends State<CourseFormPage> {
               onChanged: (v) async {
                 if (v == -1) {
                   final m = await _customRemind();
-                  if (m != null) setState(() => _remindMinutes = m);
+                  if (m != null) {
+                    setState(() {
+                      _remindMinutes = m;
+                      _dirty = true;
+                    });
+                  }
                 } else {
-                  setState(() => _remindMinutes = v);
+                  setState(() {
+                    _remindMinutes = v;
+                    _dirty = true;
+                  });
                 }
               },
             ),
@@ -652,6 +740,7 @@ class _CourseFormPageState extends State<CourseFormPage> {
                   _examEnd = null;
                   _examLocationCtrl.clear();
                   _examSeatCtrl.clear();
+                  _dirty = true;
                 }),
                 child: const Text('清除考试信息'),
               ),
@@ -680,6 +769,7 @@ class _CourseFormPageState extends State<CourseFormPage> {
             child: const Text('保存'),
           ),
         ),
+      ),
       ),
     );
   }
@@ -715,7 +805,10 @@ class _CourseFormPageState extends State<CourseFormPage> {
                 IconButton(
                   tooltip: '删除',
                   icon: const Icon(Icons.delete_outline, size: 20),
-                  onPressed: () => setState(() => _classTimes.removeAt(index)),
+                  onPressed: () => setState(() {
+                    _classTimes.removeAt(index);
+                    _dirty = true;
+                  }),
                 ),
               ],
             ),
