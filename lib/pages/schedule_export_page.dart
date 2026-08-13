@@ -7,7 +7,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
-import 'package:qr_flutter/qr_flutter.dart';
+import 'package:image/image.dart' as img;
 import 'package:share_plus/share_plus.dart';
 
 import '../models/course.dart';
@@ -47,6 +47,23 @@ class _ScheduleExportPageState extends State<ScheduleExportPage> {
   );
   late final bool _compressed = _payload?.startsWith(compressedMagic) ?? false;
 
+  /// 页面展示的二维码：与导出/分享的图片同源（离屏渲染），
+  /// 保证"软件里看到的"和"保存出去的"完全一致。
+  Uint8List? _displayQrPng;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDisplayQr();
+  }
+
+  Future<void> _loadDisplayQr() async {
+    final payload = _payload;
+    if (payload == null) return;
+    final png = await _renderQrPng(payload);
+    if (mounted) setState(() => _displayQrPng = png);
+  }
+
   String get _fileName => '${widget.schedule.name}_课表.json';
 
   /// 手机端走系统分享面板；桌面端保持保存文件。
@@ -60,56 +77,19 @@ class _ScheduleExportPageState extends State<ScheduleExportPage> {
   bool get _qrUsable => _payload != null && _payload!.length <= _qrMaxLen;
 
   /// 导出二维码的渲染参数（逻辑像素，最终以 _qrScale 倍分辨率输出）。
-  static const double _qrRenderSize = 220;
+  static const double _qrRenderSize = 260;
   static const double _qrQuiet = 20;
   static const int _qrScale = 3;
 
-  /// 在 [canvas] 的 [offset]（二维码左上角，静区之外）绘制二维码。
-  /// 优先高纠错级别，数据过长时自动降级，全部失败返回 false。
-  bool _paintQr(Canvas canvas, Offset offset, String payload) {
-    for (final ecl in const [QrErrorCorrectLevel.M, QrErrorCorrectLevel.L]) {
-      try {
-        canvas.save();
-        canvas.translate(offset.dx, offset.dy);
-        QrPainter(
-          data: payload,
-          version: QrVersions.auto,
-          errorCorrectionLevel: ecl,
-          color: const Color(0xFF000000),
-          gapless: true,
-        ).paint(canvas, const Size(_qrRenderSize, _qrRenderSize));
-        canvas.restore();
-        return true;
-      } catch (e) {
-        canvas.restore();
-        debugPrint('二维码绘制失败($ecl): $e');
-      }
-    }
-    return false;
-  }
-
-  /// 渲染一张纯二维码图（白底 + 静区），用于生成自检解码，避免卡片上的
-  /// 文字/图标干扰 zxing 整图识别。
+  /// 渲染一张纯二维码图（白底 + 静区），供页面展示，保证页面与导出的
+  /// 二维码同源一致。用 image 库绘制（整数像素模块，zxing 易解）。
   Future<Uint8List?> _renderQrPng(String payload) async {
-    const qrArea = _qrRenderSize + _qrQuiet * 2;
-    final recorder = ui.PictureRecorder();
-    final canvas = Canvas(recorder);
-    canvas.scale(_qrScale.toDouble());
-    canvas.drawRect(
-      Rect.fromLTWH(0, 0, qrArea, qrArea),
-      Paint()..color = Colors.white,
+    return ScheduleShareService.renderQrPng(
+      payload,
+      size: _qrRenderSize,
+      quiet: _qrQuiet,
+      scale: _qrScale,
     );
-    if (!_paintQr(canvas, const Offset(_qrQuiet, _qrQuiet), payload)) {
-      return null;
-    }
-    final picture = recorder.endRecording();
-    final img = await picture.toImage(
-      (qrArea * _qrScale).toInt(),
-      (qrArea * _qrScale).toInt(),
-    );
-    final data = await img.toByteData(format: ui.ImageByteFormat.png);
-    img.dispose();
-    return data?.buffer.asUint8List();
   }
 
   Future<void> _saveFile() async {
@@ -145,11 +125,25 @@ class _ScheduleExportPageState extends State<ScheduleExportPage> {
 
   /// 离屏绘制完整分享卡片（软件图标 + 软件名 + 课程表名称 + 二维码 + 提示），
   /// 以 3 倍分辨率绘制后输出 PNG 字节，不依赖 widget 渲染。
+  /// 文字/图标用 Flutter Canvas 绘制，二维码用 image 库绘制后合成，
+  /// 保证图片中的二维码能被 zxing 解码。
   Future<Uint8List?> _renderShareCardPng() async {
     final payload = _payload;
     if (payload == null) return null;
+
+    // 二维码用 image 库绘制（整数像素模块，zxing 易解；含白底静区）。
+    final qrPng = ScheduleShareService.renderQrPng(
+      payload,
+      size: _qrRenderSize,
+      quiet: _qrQuiet,
+      scale: _qrScale,
+    );
+    if (qrPng == null) return null;
+    final qrDecoded = img.decodeImage(qrPng);
+    if (qrDecoded == null) return null;
+
     final scale = _qrScale.toDouble();
-    const w = 340.0;
+    const w = 380.0;
     const pad = 16.0;
     const iconSize = 18.0;
 
@@ -206,6 +200,7 @@ class _ScheduleExportPageState extends State<ScheduleExportPage> {
     )..layout();
 
     // 卡片总高。
+    final qrArea = _qrRenderSize + _qrQuiet * 2;
     final h =
         pad +
         iconSize +
@@ -214,16 +209,15 @@ class _ScheduleExportPageState extends State<ScheduleExportPage> {
         4 +
         weeksTp.height +
         12 +
-        (_qrRenderSize + _qrQuiet * 2) +
+        qrArea +
         12 +
         tipTp.height +
         pad;
 
-    // 离屏绘制（放大 scale 倍保证导出清晰）。
+    // 离屏绘制文字层（放大 scale 倍保证导出清晰），二维码区域留白。
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
     canvas.scale(scale);
-    // 先整体铺白：PNG 若带透明区，zxing 会把透明像素当黑色，干扰识别。
     canvas.drawRect(Rect.fromLTWH(0, 0, w, h), Paint()..color = Colors.white);
     canvas.drawRRect(
       RRect.fromRectAndRadius(
@@ -257,28 +251,13 @@ class _ScheduleExportPageState extends State<ScheduleExportPage> {
     weeksTp.paint(canvas, Offset((w - weeksTp.width) / 2, y));
     y += weeksTp.height + 12;
 
-    // 二维码（四周留白静区；优先高纠错级别，数据过长时自动降级）
-    final qrArea = _qrRenderSize + _qrQuiet * 2;
+    // 二维码区域留白（二维码 PNG 稍后合成）。
     final qrX = (w - qrArea) / 2;
+    final qrY = y;
     canvas.drawRect(
       Rect.fromLTWH(qrX, y, qrArea, qrArea),
       Paint()..color = Colors.white,
     );
-    final qrPainted = _paintQr(
-      canvas,
-      Offset(qrX + _qrQuiet, y + _qrQuiet),
-      payload,
-    );
-    if (!qrPainted) {
-      final errTp = TextPainter(
-        text: const TextSpan(
-          text: '二维码生成失败',
-          style: TextStyle(fontSize: 12, color: Color(0xFF999999)),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      errTp.paint(canvas, Offset((w - errTp.width) / 2, y + qrArea / 2));
-    }
     y += qrArea + 12;
 
     // 提示文字
@@ -292,8 +271,19 @@ class _ScheduleExportPageState extends State<ScheduleExportPage> {
     final data = await image.toByteData(format: ui.ImageByteFormat.png);
     image.dispose();
     iconImage.dispose();
-    final png = data?.buffer.asUint8List();
-    return png;
+    final cardPng = data?.buffer.asUint8List();
+    if (cardPng == null) return null;
+
+    // 把二维码 PNG（含静区）合成到预留区域。
+    final base = img.decodeImage(cardPng);
+    if (base == null) return null;
+    img.compositeImage(
+      base,
+      qrDecoded,
+      dstX: (qrX * scale).round(),
+      dstY: (qrY * scale).round(),
+    );
+    return img.encodePng(base);
   }
 
   Future<void> _saveImage() async {
@@ -422,8 +412,8 @@ class _ScheduleExportPageState extends State<ScheduleExportPage> {
                       ),
                     )
                   else ...[
-                    // 页面只显示二维码（白底，深色模式下也清晰）；
-                    // 保存 / 分享出去的图片由 _renderShareCardPng 离屏绘制。
+                    // 页面显示离屏渲染的纯二维码图，与保存/分享出去的
+                    // 图片同源；加载完成前显示占位。
                     Center(
                       child: Container(
                         padding: const EdgeInsets.all(12),
@@ -431,16 +421,22 @@ class _ScheduleExportPageState extends State<ScheduleExportPage> {
                           color: Colors.white,
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: QrImageView(
-                          data: _payload!,
-                          size: 240,
-                          version: QrVersions.auto,
-                          errorCorrectionLevel: QrErrorCorrectLevel.L,
-                          errorStateBuilder: (context, error) => Text(
-                            '二维码生成失败：$error',
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                        ),
+                        child: _displayQrPng == null
+                            ? const SizedBox(
+                                width: 240,
+                                height: 240,
+                                child: Center(
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 3,
+                                  ),
+                                ),
+                              )
+                            : Image.memory(
+                                _displayQrPng!,
+                                width: 240,
+                                height: 240,
+                                gaplessPlayback: true,
+                              ),
                       ),
                     ),
                     if (_compressed) ...[

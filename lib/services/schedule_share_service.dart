@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:image/image.dart' as img;
+import 'package:qr/qr.dart' show QrCode, QrErrorCorrectLevel, QrImage;
 import 'package:zxing2/qrcode.dart' as zxing;
 
 import '../models/course.dart';
@@ -66,25 +68,22 @@ class ScheduleShareService {
   /// 数据位约 2956 字节），再预留模式/长度等头部开销，取 2950。
   static const int _qrMaxBytes = 2950;
 
-  /// 生成二维码内容：优先使用紧凑 JSON（短键名、省略本地用不到的
-  /// id/uid）；超出容量则 gzip 压缩后 base64 编码并加前缀；
-  /// 仍超出容量则返回 null。
+  /// 生成二维码内容：紧凑 JSON 与 gzip 压缩后 base64 取较短者，
+  /// 尽量降低二维码版本密度、提高静态识别成功率；超出容量返回 null。
   static String? qrPayload(Schedule schedule, List<Course> courses) {
     final compact = jsonEncode(_compact(schedule, courses));
-    if (utf8.encode(compact).length <= _qrMaxBytes) return compact;
-    final gz = GZipEncoder().encodeBytes(
-      Uint8List.fromList(utf8.encode(compact)),
-      level: 9,
-    );
-    final compressed = '$compressedMagic${base64Encode(gz)}';
-    if (compressed.length <= _qrMaxBytes) return compressed;
-    return null;
+    final rawBytes = utf8.encode(compact);
+    final compressed =
+        '$compressedMagic${base64Encode(GZipEncoder().encodeBytes(Uint8List.fromList(rawBytes), level: 9))}';
+    if (compressed.length < rawBytes.length) {
+      return compressed.length <= _qrMaxBytes ? compressed : null;
+    }
+    return rawBytes.length <= _qrMaxBytes ? compact : null;
   }
 
   /// 二维码专用紧凑格式（版本号 2），键名短、结构扁平。
   /// 文件导入仍用完整 [encode]，两者互不影响。
-  static Map<String, dynamic> _compact(
-      Schedule s, List<Course> courses) {
+  static Map<String, dynamic> _compact(Schedule s, List<Course> courses) {
     return {
       't': 2,
       's': {
@@ -210,7 +209,10 @@ class ScheduleShareService {
         ),
         reschedules: [
           for (final r in (s['r'] as List? ?? []))
-            RescheduleDay(date: (r as List)[0] as String, source: r[1] as String),
+            RescheduleDay(
+              date: (r as List)[0] as String,
+              source: r[1] as String,
+            ),
         ],
       );
       final courses = [
@@ -234,9 +236,7 @@ class ScheduleShareService {
                           building: (ct['l'] as List)[0] as String,
                           room: (ct['l'] as List)[1] as String,
                         ),
-                  weeks: ct['w'] == null
-                      ? null
-                      : (ct['w'] as List).cast<int>(),
+                  weeks: ct['w'] == null ? null : (ct['w'] as List).cast<int>(),
                 ),
             ],
             location: CourseLocation(
@@ -251,7 +251,8 @@ class ScheduleShareService {
                     date: (c['e'] as List)[0] == null
                         ? null
                         : DateTime.fromMillisecondsSinceEpoch(
-                            (c['e'] as List)[0] as int),
+                            (c['e'] as List)[0] as int,
+                          ),
                     timeText: (c['e'] as List)[1] as String?,
                     location: (c['e'] as List)[2] as String?,
                     seat: (c['e'] as List)[3] as String?,
@@ -266,32 +267,129 @@ class ScheduleShareService {
   }
 
   /// 从图片字节解码二维码，返回二维码原始内容；失败返回 null。
+  ///
+  /// 依次尝试多种预处理 / 二值化组合（放大、反色、全局/混合二值化），
+  /// 任一组合成功即返回，尽量兼容不同来源的二维码图片。
   static Future<String?> qrContentFromImageBytes(Uint8List bytes) async {
     try {
       var decoded = img.decodeImage(bytes);
       if (decoded == null) return null;
       // 过大的图片先等比缩小，加快灰度转换与解码速度。
       decoded = _downscale(decoded, 1600);
-      final w = decoded.width;
-      final h = decoded.height;
-      final pixels = Int32List(w * h);
-      for (var y = 0; y < h; y++) {
-        for (var x = 0; x < w; x++) {
-          final p = decoded.getPixel(x, y);
-          final a = p.a.toInt();
-          final r = p.r.toInt();
-          final g = p.g.toInt();
-          final b = p.b.toInt();
-          pixels[y * w + x] = (a << 24) | (r << 16) | (g << 8) | b;
-        }
+
+      final variants = <img.Image>[decoded];
+      // 码点偏小 / 密集时放大重试，通常能显著提高识别率。
+      if (decoded.width < 1600 && decoded.height < 1600) {
+        variants.add(
+          img.copyResize(
+            decoded,
+            width: decoded.width * 2,
+            height: decoded.height * 2,
+            interpolation: img.Interpolation.nearest,
+          ),
+        );
       }
-      final source = zxing.RGBLuminanceSource(w, h, pixels);
-      final bitmap = zxing.BinaryBitmap(zxing.HybridBinarizer(source));
-      final result = zxing.QRCodeReader().decode(bitmap);
-      return result.text;
+      for (final im in variants) {
+        final normal = _decodeQr(im, hybrid: true, invert: false);
+        if (normal != null) return normal;
+        final inverted = _decodeQr(im, hybrid: true, invert: true);
+        if (inverted != null) return inverted;
+        final global = _decodeQr(im, hybrid: false, invert: false);
+        if (global != null) return global;
+      }
+      return null;
     } catch (_) {
       return null;
     }
+  }
+
+  /// 对单张图片做一次二维码解码；[invert] 表示是否反色（白码黑底）。
+  static String? _decodeQr(
+    img.Image im, {
+    required bool hybrid,
+    required bool invert,
+  }) {
+    try {
+      final w = im.width;
+      final h = im.height;
+      final pixels = Int32List(w * h);
+      for (var y = 0; y < h; y++) {
+        for (var x = 0; x < w; x++) {
+          final p = im.getPixel(x, y);
+          var v =
+              (p.a.toInt() << 24) |
+              (p.r.toInt() << 16) |
+              (p.g.toInt() << 8) |
+              p.b.toInt();
+          if (invert) v = 0xFFFFFFFF & ~v; // 保留 alpha，翻转 RGB
+          pixels[y * w + x] = v;
+        }
+      }
+      final source = zxing.RGBLuminanceSource(w, h, pixels);
+      final bitmap = zxing.BinaryBitmap(
+        hybrid
+            ? zxing.HybridBinarizer(source)
+            : zxing.GlobalHistogramBinarizer(source),
+      );
+      final result = zxing.QRCodeReader().decode(bitmap);
+      return result.text;
+    } catch (e) {
+      debugPrint(
+        'zxing 解码失败(hybrid=$hybrid, invert=$invert, '
+        '${im.width}x${im.height}): $e',
+      );
+      return null;
+    }
+  }
+
+  /// 用 image 库直接绘制二维码 PNG（白底 + 静区 + 整数像素模块）。
+  ///
+  /// 与 Flutter Canvas 离屏渲染相比，模块边界为整数像素、无浮点模糊，
+  /// zxing 等解码器更容易识别。优先使用高纠错级别，数据过长时自动降级。
+  /// [size] 二维码逻辑尺寸（不含静区），[quiet] 静区宽度，
+  /// [scale] 输出分辨率倍数。无法容纳内容时返回 null。
+  static Uint8List? renderQrPng(
+    String payload, {
+    double size = 260,
+    double quiet = 20,
+    int scale = 3,
+  }) {
+    QrCode? code;
+    for (final ecl in const [
+      QrErrorCorrectLevel.L,
+      QrErrorCorrectLevel.M,
+      QrErrorCorrectLevel.Q,
+      QrErrorCorrectLevel.H,
+    ]) {
+      try {
+        code = QrCode.fromData(data: payload, errorCorrectLevel: ecl);
+        break;
+      } catch (_) {}
+    }
+    if (code == null) return null;
+    final qrImage = QrImage(code);
+    final n = qrImage.moduleCount;
+    final qpx = (quiet * scale).round();
+    final modulePx = ((size * scale) / n).floor();
+    if (modulePx < 2) return null;
+    final side = n * modulePx + qpx * 2;
+    final im = img.Image(width: side, height: side);
+    img.fill(im, color: img.ColorRgb8(255, 255, 255));
+    for (var y = 0; y < n; y++) {
+      for (var x = 0; x < n; x++) {
+        if (qrImage.isDark(y, x)) {
+          img.fillRect(
+            im,
+            x1: qpx + x * modulePx,
+            y1: qpx + y * modulePx,
+            x2: qpx + (x + 1) * modulePx - 1,
+            y2: qpx + (y + 1) * modulePx - 1,
+            color: img.ColorRgb8(0, 0, 0),
+          );
+        }
+      }
+    }
+    return img.encodePng(im);
   }
 
   /// 等比缩小图片，使长边不超过 [maxSide]。

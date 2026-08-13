@@ -20,6 +20,8 @@ dependencies:
   flutter_timezone: ^5.1.0
   http: ^1.2.0
   qr_flutter: ^4.1.0
+  # 二维码生成矩阵（schedule_share_service 离屏绘制用）
+  qr: ^3.0.2
   # 本地 vendor 版：修复 AGP 9 + android.builtInKotlin=false 下 Kotlin 类不编译的问题
   file_picker:
     path: third_party/file_picker
