@@ -20,10 +20,15 @@ class AppSettings {
   /// 深浅主题。
   ThemeMode themeMode;
 
+  /// 已同意的《用户协议》版本号（手机端首次启动确认）。
+  /// 为 null 表示从未同意过；协议内容变更后，版本号不同会再次要求确认。
+  String? agreementVersion;
+
   AppSettings({
     this.activeScheduleId,
     this.mode = TimetableMode.currentWeek,
     this.themeMode = ThemeMode.system,
+    this.agreementVersion,
   });
 
   AppSettings copyWith({
@@ -31,6 +36,7 @@ class AppSettings {
     bool clearActiveSchedule = false,
     TimetableMode? mode,
     ThemeMode? themeMode,
+    String? agreementVersion,
   }) =>
       AppSettings(
         activeScheduleId: clearActiveSchedule
@@ -38,6 +44,7 @@ class AppSettings {
             : (activeScheduleId ?? this.activeScheduleId),
         mode: mode ?? this.mode,
         themeMode: themeMode ?? this.themeMode,
+        agreementVersion: agreementVersion ?? this.agreementVersion,
       );
 
   factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
@@ -46,12 +53,14 @@ class AppSettings {
             ? TimetableMode.semester
             : TimetableMode.currentWeek,
         themeMode: _themeFromName(json['themeMode'] as String?),
+        agreementVersion: json['agreementVersion'] as String?,
       );
 
   Map<String, dynamic> toJson() => {
         'activeScheduleId': activeScheduleId,
         'mode': mode.name,
         'themeMode': themeMode.name,
+        'agreementVersion': agreementVersion,
       };
 
   static ThemeMode _themeFromName(String? name) {

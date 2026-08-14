@@ -65,3 +65,5 @@ flutter:
   # 图标也随应用打包，Linux 端用它作为 GTK 窗口图标。
   assets:
     - assets/ClassPath_1024.png
+    # 用户协议全文（设置页「关于 → 用户协议」展示）。
+    - assets/user_agreement.txt
