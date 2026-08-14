@@ -1,6 +1,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- 摄像头：用于扫描课程表分享二维码 -->
     <uses-permission android:name="android.permission.CAMERA"/>
+    <!-- Android 13+ 通知权限：课程提醒需在运行时申请 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- 通知震动提醒 -->
+    <uses-permission android:name="android.permission.VIBRATE"/>
+    <!-- 开机后恢复已预约的提醒通知 -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <!-- 精确闹钟：Android 13+ 自动授予，确保提醒准时触发 -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
     <application
         android:label="课途"
         android:name="${applicationName}"
@@ -37,6 +45,23 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths"/>
         </provider>
+        <!-- flutter_local_notifications v16+ 不再自动注册这些接收器，
+             需要由 App 自行声明（见插件 README "AndroidManifest.xml setup"）：
+             - ScheduledNotificationReceiver：到点弹出已预约的通知；
+             - ScheduledNotificationBootReceiver：开机/覆盖安装后恢复预约。 -->
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver"
+            android:exported="false"/>
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
+            </intent-filter>
+        </receiver>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

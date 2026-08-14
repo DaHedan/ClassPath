@@ -381,49 +381,25 @@ class _CourseFormPageState extends State<CourseFormPage> {
     return items;
   }
 
+  /// 下拉选中「自定义…」：等下拉菜单路由完全关闭（收起动画约 300ms）
+  /// 后再弹输入框，避免动画期间弹新路由触发框架断言（红色报错页）。
+  Future<void> _pickCustomRemind() async {
+    await Future.delayed(const Duration(milliseconds: 400));
+    if (!mounted) return;
+    final m = await _customRemind();
+    if (m != null && mounted) {
+      setState(() {
+        _remindMinutes = m;
+        _dirty = true;
+      });
+    }
+  }
+
   Future<int?> _customRemind() async {
-    final ctrl = TextEditingController(text: _remindMinutes?.toString() ?? '30');
-    final result = await showDialog<int>(
+    return showDialog<int>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('自定义提醒时间'),
-        content: Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: ctrl,
-                keyboardType: TextInputType.number,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  labelText: '分钟数',
-                  hintText: '如 30',
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            const Text('分钟'),
-          ],
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
-          FilledButton(
-            onPressed: () {
-              final v = int.tryParse(ctrl.text.trim());
-              if (v == null || v < 1 || v > 10080) {
-                ScaffoldMessenger.of(ctx).showSnackBar(
-                    const SnackBar(content: Text('请输入 1-10080 之间的分钟数')));
-                return;
-              }
-              Navigator.pop(ctx, v);
-            },
-            child: const Text('确定'),
-          ),
-        ],
-      ),
+      builder: (ctx) => _CustomRemindDialog(initial: _remindMinutes),
     );
-    ctrl.dispose();
-    return result;
   }
 
   Future<void> _pickExamDate() async {
@@ -630,7 +606,8 @@ class _CourseFormPageState extends State<CourseFormPage> {
           for (var i = 0; i < _classTimes.length; i++)
             _classTimeCard(theme, _classTimes[i], i),
           const SizedBox(height: 16),
-          // 提醒
+          // 提醒：下拉含预设值与「自定义…」。选中「自定义…」时先等下拉
+          // 菜单路由完全关闭再弹输入框（见 _pickCustomRemind）。
           ListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('提前提醒'),
@@ -639,15 +616,9 @@ class _CourseFormPageState extends State<CourseFormPage> {
               value: _remindMinutes,
               underline: const SizedBox.shrink(),
               items: _remindItems(),
-              onChanged: (v) async {
+              onChanged: (v) {
                 if (v == -1) {
-                  final m = await _customRemind();
-                  if (m != null) {
-                    setState(() {
-                      _remindMinutes = m;
-                      _dirty = true;
-                    });
-                  }
+                  _pickCustomRemind();
                 } else {
                   setState(() {
                     _remindMinutes = v;
@@ -1534,6 +1505,70 @@ class _ColorPickerDialogState extends State<_ColorPickerDialog> {
           width: 44,
           child: Text(labelOf(value),
               textAlign: TextAlign.right, style: const TextStyle(fontSize: 12)),
+        ),
+      ],
+    );
+  }
+}
+
+// ================= 自定义提醒时间对话框 =================
+
+/// 自定义提醒时间输入框。独立 State 管理 TextEditingController，
+/// 在 dispose 中释放，避免对话框退出动画期间释放控制器导致框架异常。
+class _CustomRemindDialog extends StatefulWidget {
+  final int? initial;
+
+  const _CustomRemindDialog({this.initial});
+
+  @override
+  State<_CustomRemindDialog> createState() => _CustomRemindDialogState();
+}
+
+class _CustomRemindDialogState extends State<_CustomRemindDialog> {
+  late final TextEditingController _ctrl =
+      TextEditingController(text: widget.initial?.toString() ?? '30');
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('自定义提醒时间'),
+      content: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _ctrl,
+              keyboardType: TextInputType.number,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: '分钟数',
+                hintText: '如 30',
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          const Text('分钟'),
+        ],
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context), child: const Text('取消')),
+        FilledButton(
+          onPressed: () {
+            final v = int.tryParse(_ctrl.text.trim());
+            if (v == null || v < 1 || v > 10080) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('请输入 1-10080 之间的分钟数')));
+              return;
+            }
+            Navigator.pop(context, v);
+          },
+          child: const Text('确定'),
         ),
       ],
     );

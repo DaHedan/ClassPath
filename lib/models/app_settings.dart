@@ -20,22 +20,10 @@ class AppSettings {
   /// 深浅主题。
   ThemeMode themeMode;
 
-  /// 提醒方式：上方通知弹窗。
-  bool notifyBanner;
-
-  /// 提醒方式：锁屏弹窗。
-  bool notifyLockScreen;
-
-  /// 提醒方式：声音。
-  bool notifySound;
-
   AppSettings({
     this.activeScheduleId,
     this.mode = TimetableMode.currentWeek,
     this.themeMode = ThemeMode.system,
-    this.notifyBanner = true,
-    this.notifyLockScreen = true,
-    this.notifySound = true,
   });
 
   AppSettings copyWith({
@@ -43,9 +31,6 @@ class AppSettings {
     bool clearActiveSchedule = false,
     TimetableMode? mode,
     ThemeMode? themeMode,
-    bool? notifyBanner,
-    bool? notifyLockScreen,
-    bool? notifySound,
   }) =>
       AppSettings(
         activeScheduleId: clearActiveSchedule
@@ -53,9 +38,6 @@ class AppSettings {
             : (activeScheduleId ?? this.activeScheduleId),
         mode: mode ?? this.mode,
         themeMode: themeMode ?? this.themeMode,
-        notifyBanner: notifyBanner ?? this.notifyBanner,
-        notifyLockScreen: notifyLockScreen ?? this.notifyLockScreen,
-        notifySound: notifySound ?? this.notifySound,
       );
 
   factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
@@ -64,18 +46,12 @@ class AppSettings {
             ? TimetableMode.semester
             : TimetableMode.currentWeek,
         themeMode: _themeFromName(json['themeMode'] as String?),
-        notifyBanner: json['notifyBanner'] as bool? ?? true,
-        notifyLockScreen: json['notifyLockScreen'] as bool? ?? true,
-        notifySound: json['notifySound'] as bool? ?? true,
       );
 
   Map<String, dynamic> toJson() => {
         'activeScheduleId': activeScheduleId,
         'mode': mode.name,
         'themeMode': themeMode.name,
-        'notifyBanner': notifyBanner,
-        'notifyLockScreen': notifyLockScreen,
-        'notifySound': notifySound,
       };
 
   static ThemeMode _themeFromName(String? name) {

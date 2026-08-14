@@ -88,12 +88,18 @@ class _TimeDialPickerState extends State<_TimeDialPicker>
   /// 根据点击/拖动位置选择小时或分钟。
   /// [center] 为表盘中心（相对手势局部坐标）。
   /// [animate] 为 false（拖动）时直接跟随，不做过渡动画。
+  /// [scale] 为表盘实际渲染尺寸相对基准 _dialSize 的缩放系数。
   /// 返回是否选中了有效值（中心留白区返回 false）。
-  bool _onDial(Offset local, {required Offset center, bool animate = true}) {
+  bool _onDial(
+    Offset local, {
+    required Offset center,
+    bool animate = true,
+    double scale = 1.0,
+  }) {
     final dx = local.dx - center.dx;
     final dy = local.dy - center.dy;
     final r = math.sqrt(dx * dx + dy * dy);
-    if (r < 28) return false; // 中心留白区不选择
+    if (r < 28 * scale) return false; // 中心留白区不选择
     var angle = math.atan2(dy, dx) + math.pi / 2; // 顶部为 0
     if (angle < 0) angle += 2 * math.pi;
     if (angle >= 2 * math.pi) angle -= 2 * math.pi;
@@ -101,7 +107,7 @@ class _TimeDialPickerState extends State<_TimeDialPicker>
       if (_pickingHour) {
         final index = (angle / (2 * math.pi / 12)).round() % 12; // 顶部起 0..11
         // 内圈 1-12，顶部为 12；外圈 13-24，顶部为 24（即 0 点）。
-        final inner = r < (_innerR + _outerR) / 2;
+        final inner = r < (_innerR + _outerR) / 2 * scale;
         if (inner) {
           _hour = ((index + 11) % 12) + 1;
         } else {
@@ -119,10 +125,21 @@ class _TimeDialPickerState extends State<_TimeDialPicker>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // 表盘自适应屏幕：AlertDialog 水平占用约 128dp
+    // （insetPadding 40*2 + content padding 24*2），超出部分会导致
+    // 表盘被压缩裁切、外圈数字点不准。基准 _dialSize 在宽屏上保持不变。
+    final dial = math.min(_dialSize, MediaQuery.sizeOf(context).width - 136);
+    final scale = dial / _dialSize;
     return AlertDialog(
       title: const Text('选择时间'),
-      content: SizedBox(
-        width: 300,
+      content: FittedBox(
+        // 高度交给 Column 自适应（模式按钮行 + 间隔 + 表盘）。
+        // 用 FittedBox(scaleDown) 兜底：窗口过矮 / 字体放大 / 小屏时整体
+        // 等比缩小，避免模式按钮行与表盘被压缩导致 RenderFlex OVERFLOWING。
+        // FittedBox 以无约束方式测量子节点（Column 按其内容自然尺寸排版），
+        // 因此子节点内部不会溢出；缩放不改变表盘内部坐标系（命中测试自动
+        // 按缩放矩阵换算），指针与点选计算仍以本表盘的 dial 尺寸为准。
+        fit: BoxFit.scaleDown,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -136,7 +153,9 @@ class _TimeDialPickerState extends State<_TimeDialPicker>
                 Text(
                   '$_hh:$_mm',
                   style: const TextStyle(
-                      fontSize: 28, fontWeight: FontWeight.w700),
+                    fontSize: 28,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
                 const SizedBox(width: 24),
                 _modeButton(theme, '分', !_pickingHour, () {
@@ -146,8 +165,8 @@ class _TimeDialPickerState extends State<_TimeDialPicker>
             ),
             const SizedBox(height: 8),
             SizedBox(
-              width: _dialSize,
-              height: _dialSize,
+              width: dial,
+              height: dial,
               // 用 Listener 自己管理按下/拖动/抬起，避免 onTapDown 与
               // onPanUpdate 手势竞争导致点选偶尔丢失、拖动跳到别处。
               child: Listener(
@@ -155,8 +174,11 @@ class _TimeDialPickerState extends State<_TimeDialPicker>
                   _downPos = e.localPosition;
                   _dragging = false;
                   // 按下位置立即选中（点哪选哪），不用等手势竞技场裁决。
-                  _selectedThisPress = _onDial(e.localPosition,
-                      center: const Offset(_dialSize / 2, _dialSize / 2));
+                  _selectedThisPress = _onDial(
+                    e.localPosition,
+                    center: Offset(dial / 2, dial / 2),
+                    scale: scale,
+                  );
                 },
                 onPointerMove: (e) {
                   if (_downPos == null) return;
@@ -165,9 +187,12 @@ class _TimeDialPickerState extends State<_TimeDialPicker>
                     if ((e.localPosition - _downPos!).distance < 18) return;
                     _dragging = true;
                   }
-                  final ok = _onDial(e.localPosition,
-                      center: const Offset(_dialSize / 2, _dialSize / 2),
-                      animate: false);
+                  final ok = _onDial(
+                    e.localPosition,
+                    center: Offset(dial / 2, dial / 2),
+                    animate: false,
+                    scale: scale,
+                  );
                   if (ok) _selectedThisPress = true;
                 },
                 onPointerUp: (_) {
@@ -190,7 +215,7 @@ class _TimeDialPickerState extends State<_TimeDialPicker>
                 child: AnimatedBuilder(
                   animation: _anim,
                   builder: (context, _) => CustomPaint(
-                    size: const Size(_dialSize, _dialSize),
+                    size: Size(dial, dial),
                     painter: _DialPainter(
                       hourMode: _pickingHour,
                       hour: _hour,
@@ -200,6 +225,7 @@ class _TimeDialPickerState extends State<_TimeDialPicker>
                       lastHour: _lastHour,
                       lastMinute: _lastMinute,
                       lastHourMode: _lastHourMode,
+                      scale: scale,
                     ),
                   ),
                 ),
@@ -210,8 +236,9 @@ class _TimeDialPickerState extends State<_TimeDialPicker>
       ),
       actions: [
         TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消')),
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
         FilledButton(
           onPressed: () =>
               Navigator.pop(context, TimeOfDay(hour: _hour, minute: _minute)),
@@ -222,7 +249,11 @@ class _TimeDialPickerState extends State<_TimeDialPicker>
   }
 
   Widget _modeButton(
-      ThemeData theme, String label, bool active, VoidCallback onTap) {
+    ThemeData theme,
+    String label,
+    bool active,
+    VoidCallback onTap,
+  ) {
     return TextButton(
       onPressed: onTap,
       style: TextButton.styleFrom(
@@ -235,8 +266,10 @@ class _TimeDialPickerState extends State<_TimeDialPicker>
         minimumSize: const Size(40, 36),
         padding: const EdgeInsets.symmetric(horizontal: 12),
       ),
-      child: Text(label,
-          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+      child: Text(
+        label,
+        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+      ),
     );
   }
 }
@@ -254,6 +287,9 @@ class _DialPainter extends CustomPainter {
   final int lastMinute;
   final bool lastHourMode;
 
+  /// 实际表盘尺寸相对基准 _dialSize 的缩放系数（窄屏自适应）。
+  final double scale;
+
   const _DialPainter({
     required this.hourMode,
     required this.hour,
@@ -263,6 +299,7 @@ class _DialPainter extends CustomPainter {
     required this.lastHour,
     required this.lastMinute,
     required this.lastHourMode,
+    this.scale = 1.0,
   });
 
   double _angleOf(int index) => index * (2 * math.pi / 12) - math.pi / 2;
@@ -274,11 +311,11 @@ class _DialPainter extends CustomPainter {
       final index = inner ? h % 12 : (h == 0 ? 0 : h - 12);
       return center +
           Offset(math.cos(_angleOf(index)), math.sin(_angleOf(index))) *
-              (inner ? _innerR : _outerR);
+              (inner ? _innerR : _outerR) *
+              scale;
     }
     final angle = m * (2 * math.pi / 60) - math.pi / 2;
-    return center +
-        Offset(math.cos(angle), math.sin(angle)) * _outerR;
+    return center + Offset(math.cos(angle), math.sin(angle)) * _outerR * scale;
   }
 
   @override
@@ -288,13 +325,26 @@ class _DialPainter extends CustomPainter {
     // 底色：外圈一层、内圈一层、中心留白一层。
     // 内外圈用同一色相、不同明度（内圈向 surface 混合），
     // 使浅色/深色模式下差异程度保持一致。
-    final innerColor =
-        Color.lerp(scheme.primaryContainer, scheme.surface, 0.4)!;
+    final innerColor = Color.lerp(
+      scheme.primaryContainer,
+      scheme.surface,
+      0.4,
+    )!;
     canvas.drawCircle(
-        center, _outerR + _dotR, Paint()..color = scheme.primaryContainer);
-    canvas.drawCircle(center, _innerR + _dotR, Paint()..color = innerColor);
+      center,
+      (_outerR + _dotR) * scale,
+      Paint()..color = scheme.primaryContainer,
+    );
     canvas.drawCircle(
-        center, _centerR, Paint()..color = scheme.surfaceContainerHighest);
+      center,
+      (_innerR + _dotR) * scale,
+      Paint()..color = innerColor,
+    );
+    canvas.drawCircle(
+      center,
+      _centerR * scale,
+      Paint()..color = scheme.surfaceContainerHighest,
+    );
 
     // 指针与中心圆点：先画，让选中数字盖在指针尖端之上，
     // 避免指针线压住选中数字的边缘与文字。
@@ -317,36 +367,44 @@ class _DialPainter extends CustomPainter {
       for (var h = 1; h <= 12; h++) {
         final index = h % 12;
         final selected = hour == h;
-        _drawNumber(canvas, '$h',
-            center +
-                Offset(math.cos(_angleOf(index)), math.sin(_angleOf(index))) *
-                    _innerR,
-            selected: selected);
+        _drawNumber(
+          canvas,
+          '$h',
+          center +
+              Offset(math.cos(_angleOf(index)), math.sin(_angleOf(index))) *
+                  _innerR *
+                  scale,
+          selected: selected,
+        );
       }
       for (var h = 13; h <= 24; h++) {
         final index = h % 12;
         final value = h == 24 ? 0 : h;
         final selected = hour == value;
-        _drawNumber(canvas, '$h',
-            center +
-                Offset(math.cos(_angleOf(index)), math.sin(_angleOf(index))) *
-                    _outerR,
-            selected: selected);
+        _drawNumber(
+          canvas,
+          '$h',
+          center +
+              Offset(math.cos(_angleOf(index)), math.sin(_angleOf(index))) *
+                  _outerR *
+                  scale,
+          selected: selected,
+        );
       }
     } else {
       // 分钟：一圈 60 个刻度，每 5 的倍数显示数字（0,5,...,55），
       // 其余为小刻度点；选中任意分钟都有高亮。
       for (var m = 0; m < 60; m++) {
         final angle = m * (2 * math.pi / 60) - math.pi / 2;
-        final pos = center +
-            Offset(math.cos(angle), math.sin(angle)) * _outerR;
+        final pos =
+            center + Offset(math.cos(angle), math.sin(angle)) * _outerR * scale;
         final selected = minute == m;
         if (m % 5 == 0) {
           _drawNumber(canvas, '$m', pos, selected: selected);
         } else {
           canvas.drawCircle(
             pos,
-            selected ? 4.5 : 2.5,
+            selected ? 4.5 * scale : 2.5 * scale,
             Paint()
               ..color = selected
                   ? scheme.primary
@@ -358,17 +416,21 @@ class _DialPainter extends CustomPainter {
   }
 
   void _drawNumber(
-      Canvas canvas, String text, Offset pos, {required bool selected}) {
+    Canvas canvas,
+    String text,
+    Offset pos, {
+    required bool selected,
+  }) {
     if (selected) {
       // 选中圆：动画期间轻微放大，形成“按下”脉冲。
-      final r = _dotR * (1 + 0.25 * (1 - anim));
+      final r = _dotR * scale * (1 + 0.25 * (1 - anim));
       canvas.drawCircle(pos, r, Paint()..color = scheme.primary);
     }
     final tp = TextPainter(
       text: TextSpan(
         text: text,
         style: TextStyle(
-          fontSize: 13,
+          fontSize: 13 * scale,
           fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
           color: selected ? scheme.onPrimary : scheme.onSurface,
         ),
@@ -387,5 +449,6 @@ class _DialPainter extends CustomPainter {
       old.lastHour != lastHour ||
       old.lastMinute != lastMinute ||
       old.lastHourMode != lastHourMode ||
+      old.scale != scale ||
       old.scheme != scheme;
 }

@@ -1,6 +1,8 @@
-package com.example.classpath
+package com.dahedan.classpath
 
 import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import android.util.Base64
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
@@ -35,6 +37,14 @@ class MainActivity : FlutterActivity() {
                         }
                         result.success(shareFileTo(pkg, mime, fileName, bytesBase64))
                     }
+                    // 打开应用信息页（用户在那里点「通知」进入完整通知设置）。
+                    // 直接从 ACTION_APP_NOTIFICATION_SETTINGS 进入时，部分 ROM
+                    // 只渲染通知总开关+类别，缺横幅/锁屏/声音等开关，
+                    // 因此改从应用信息页进入，与系统设置路径完全一致。
+                    "openNotificationSettings" -> {
+                        openNotificationSettings()
+                        result.success(true)
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -50,6 +60,25 @@ class MainActivity : FlutterActivity() {
         } catch (_: Exception) {
             false
         }
+
+    private fun openNotificationSettings() {
+        // 主路径：应用信息页，与「系统设置 → 应用 → 课途」一致，
+        // 再点「通知」即可看到完整的开关（横幅/锁屏/声音/类别）。
+        try {
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.parse("package:${applicationContext.packageName}")
+            }
+            startActivity(intent)
+        } catch (_: Exception) {
+            // 个别机型不支持应用信息页时，退回通知设置页。
+            try {
+                val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                    putExtra(Settings.EXTRA_APP_PACKAGE, applicationContext.packageName)
+                }
+                startActivity(intent)
+            } catch (_: Exception) {}
+        }
+    }
 
     private fun shareFileTo(
         packageName: String,
