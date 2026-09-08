@@ -30,8 +30,11 @@ class TimetableGridController {
     final offset = x + dayWidths[day - 1] / 2 - viewport / 2;
     final clamped = offset.clamp(0.0, hScroll.position.maxScrollExtent);
     if (animate) {
-      hScroll.animateTo(clamped,
-          duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+      hScroll.animateTo(
+        clamped,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
     } else {
       hScroll.jumpTo(clamped);
     }
@@ -119,9 +122,10 @@ class _TimetableGridState extends State<TimetableGrid>
   double _pageValue = DateTime.now().weekday - 1;
 
   /// 翻页动画：把 _pageValue 从 _pageFrom 平滑过渡到 _pageAnimTarget。
-  late final AnimationController _pageAnim =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 260))
-        ..addListener(_onPageAnimTick);
+  late final AnimationController _pageAnim = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 260),
+  )..addListener(_onPageAnimTick);
   double _pageFrom = 0;
   double _pageAnimTarget = 0;
 
@@ -188,7 +192,9 @@ class _TimetableGridState extends State<TimetableGrid>
 
   /// 首帧布局完成后把当天列滚动到屏幕中央。
   void _centerTodayAfterFrame() {
-    WidgetsBinding.instance.addPostFrameCallback((_) => _centerToday(remaining: 2));
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _centerToday(remaining: 2),
+    );
   }
 
   /// 居中到当天列；连续几帧重复确认，兜底滚动位置被后续布局（如
@@ -207,8 +213,9 @@ class _TimetableGridState extends State<TimetableGrid>
       widget.controller.scrollToDay(DateTime.now().weekday, animate: false);
     }
     if (remaining > 0) {
-      WidgetsBinding.instance
-          .addPostFrameCallback((_) => _centerToday(remaining: remaining - 1));
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _centerToday(remaining: remaining - 1),
+      );
     }
   }
 
@@ -236,8 +243,12 @@ class _TimetableGridState extends State<TimetableGrid>
         final viewport = ctrl.hScroll.position.viewportDimension;
         final newTotal = _labelW + _dayWidths.fold(0.0, (a, b) => a + b);
         final newCenter = newTotal * frac;
-        ctrl.hScroll.jumpTo((newCenter - viewport / 2)
-            .clamp(0.0, ctrl.hScroll.position.maxScrollExtent));
+        ctrl.hScroll.jumpTo(
+          (newCenter - viewport / 2).clamp(
+            0.0,
+            ctrl.hScroll.position.maxScrollExtent,
+          ),
+        );
       });
     }
   }
@@ -337,18 +348,17 @@ class _TimetableGridState extends State<TimetableGrid>
 
     // 统计每个「星期x + 第y节」格子里的课程（挂在节次段的起始节下）。
     final cellMap = <String, List<_CellEntry>>{};
-    // 单周模式下按调休安排搬课：原本星期几 -> 搬到补班日所在星期几
-    // （仅当补班日落在所选周才生效）。
-    final movedWeekday = <int, int>{};
+    // 单周模式下调休补班：补班日额外显示当前周 source weekday 的课程。
+    // targetWeekdaySrcWeekday: 补班日所在星期几 → source 星期几
+    final targetWeekdaySrcWeekday = <int, int>{};
     if (!widget.semesterMode) {
       for (final r in widget.schedule.reschedules) {
         final target = DateTime.parse(r.date);
-        if (ScheduleMath.weekNumberOf(widget.schedule, target) !=
-            widget.week) {
+        if (ScheduleMath.weekNumberOf(widget.schedule, target) != widget.week) {
           continue;
         }
-        final src = DateTime.parse(r.source);
-        movedWeekday[src.weekday] = target.weekday;
+        final srcDt = DateTime.parse(r.source);
+        targetWeekdaySrcWeekday[target.weekday] = srcDt.weekday;
       }
     }
     for (final course in widget.courses) {
@@ -361,22 +371,32 @@ class _TimetableGridState extends State<TimetableGrid>
           continue;
         }
         if (!widget.semesterMode) {
-          // 调休搬课：该星期的课整体挪到补班日所在列，原列不再渲染。
-          final movedTo = movedWeekday[ct.weekday];
-          if (movedTo != null) {
-            cellMap
-                .putIfAbsent('${movedTo}_${ct.startPeriod}', () => [])
-                .add(_CellEntry(course, ct));
-            continue;
+          final date = ScheduleMath.dateOf(
+            widget.week,
+            ct.weekday,
+            widget.schedule,
+          );
+          final dateKey = ScheduleMath.dateStr(date);
+          final isRest = HolidayService.isRest(widget.holidays, dateKey);
+
+          // 非休息日：正常放在自己的 weekday 列。
+          if (!isRest) {
+            final key = '${ct.weekday}_${ct.startPeriod}';
+            cellMap.putIfAbsent(key, () => []).add(_CellEntry(course, ct));
           }
-          // 放假日的课停上（隐藏，不占位）。
-          final date =
-              ScheduleMath.dateOf(widget.week, ct.weekday, widget.schedule);
-          if (HolidayService.isRest(widget.holidays,
-              ScheduleMath.dateStr(date))) {
-            continue;
+
+          // 调休：若该 weekday 是某条调休的 source weekday，
+          // 额外在补班日（target weekday）也放一份（不受休息日影响）。
+          for (final entry in targetWeekdaySrcWeekday.entries) {
+            if (entry.value == ct.weekday) {
+              final resKey = '${entry.key}_${ct.startPeriod}';
+              cellMap.putIfAbsent(resKey, () => []).add(_CellEntry(course, ct));
+            }
           }
+
+          continue;
         }
+        // 本学期模式：直接放在自己的 weekday 列。
         final key = '${ct.weekday}_${ct.startPeriod}';
         cellMap.putIfAbsent(key, () => []).add(_CellEntry(course, ct));
       }
@@ -412,8 +432,12 @@ class _TimetableGridState extends State<TimetableGrid>
   }
 
   /// 本学期模式的整张网格：左侧节次列 + 7 天列，外层横向滚动、内层纵向滚动。
-  Widget _buildSemesterView(ThemeData theme, int headerWeek,
-      Map<String, List<_CellEntry>> cellMap, double totalW) {
+  Widget _buildSemesterView(
+    ThemeData theme,
+    int headerWeek,
+    Map<String, List<_CellEntry>> cellMap,
+    double totalW,
+  ) {
     return SingleChildScrollView(
       controller: widget.controller.hScroll,
       scrollDirection: Axis.horizontal,
@@ -448,163 +472,185 @@ class _TimetableGridState extends State<TimetableGrid>
   /// - 外层共用一个纵向滚动，上下滑动时 7 张卡片整体一起动；
   /// - 首帧按当前时间定位当天纵向位置（正在上/下一节/当天最后一节）。
   Widget _buildFocusView(
-      ThemeData theme, int headerWeek, Map<String, List<_CellEntry>> cellMap) {
-    return LayoutBuilder(builder: (context, constraints) {
-      final vw = constraints.maxWidth;
-      // 左侧节次标签列占 _focusLabelW，卡片区为剩余宽度。
-      final labelW = _focusLabelW;
-      final areaW = math.max(vw - labelW, 1.0);
-      // 桌面端也保持手机般的居中比例：按最小宽度排版并居中显示。
-      final effW = math.min(areaW, 520.0);
-      _cardSpacing = effW * 0.74;
-      final cardW = effW * 0.88;
-      final contentH = _focusContentHeight();
-      final page = _pageValue;
-      final cards = <(double, Widget)>[];
-      final headers = <(double, Widget)>[];
-      for (var w = 1; w <= 7; w++) {
-        // 星期序号越大越靠右（周一在最左、周日在最右）。
-        final d = (w - 1) - page;
-        if (d.abs() > 1.15) continue; // 只构建可见的卡片
-        final t = d.abs().clamp(0.0, 1.0);
-        cards.add((
-          d.abs(),
-          _buildDayCard(w, d, t, areaW, cardW, theme, headerWeek, cellMap),
-        ));
-        // 标题行与卡片同一轨迹：一起左右平移、模糊、变淡。
-        headers.add((
-          d.abs(),
-          _buildFocusHeaderCell(w, d, t, areaW, cardW, theme, headerWeek),
-        ));
-      }
-      // 周一左侧、周日右侧的「上一周 / 下一周」占位卡：平时作为边界预览，
-      // 越界拉出后继续滑动即可切换周次。
-      const edgeWeeks = <int, String>{-1: '上一周', 7: '下一周'};
-      for (final e in edgeWeeks.entries) {
-        final d = e.key - page;
-        if (d.abs() > 1.15) continue; // 只在边界附近可见
-        final t = d.abs().clamp(0.0, 1.0);
-        cards.add((
-          d.abs(),
-          _buildWeekEdgeCard(e.value, d, t, areaW, cardW, theme),
-        ));
-      }
-      // 距离中心越远越先画，最后画的「当天」盖在邻天之上形成遮挡。
-      cards.sort((a, b) => b.$1.compareTo(a.$1));
-      headers.sort((a, b) => b.$1.compareTo(a.$1));
-      if (!_focusPositionsApplied) {
-        _focusPositionsApplied = true;
-        WidgetsBinding.instance
-            .addPostFrameCallback((_) => _applyFocusPositions(cellMap));
-      }
-      final weekKey = ValueKey('${widget.schedule.id}-week${widget.week}');
-      // 横向翻页手势包住整个聚焦视图（固定标题行 + 纵向滚动区）：
-      // 按住标题或卡片都能左右翻页，纵向滚动仍由内层滚动视图处理。
-      return GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onHorizontalDragStart: _onPageDragStart,
-        onHorizontalDragUpdate: _onPageDragUpdate,
-        onHorizontalDragEnd: _onPageDragEnd,
-        onHorizontalDragCancel: _onPageDragCancel,
-        child: Column(
-          children: [
-            // 固定的日期标题行：位于纵向滚动之外，上下滑动时始终停留在
-            // 顶部；只随横向翻页左右移动（与下方卡片同一轨迹）。
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // 与下方节次标签列对应的「节次」表头格：样式与右侧日期
-                // 标题格统一（背景、上圆角、底边线）。滚动时节次编号滚到
-                // 标题行下方被其背景自然衔接，不再是透明的空白占位。
-                Container(
-                  width: labelW,
-                  height: _focusHeaderH,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerLowest,
-                    borderRadius: BorderRadius.vertical(
-                        top: Radius.circular(16 * _scale)),
-                    border: Border(
+    ThemeData theme,
+    int headerWeek,
+    Map<String, List<_CellEntry>> cellMap,
+  ) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final vw = constraints.maxWidth;
+        // 左侧节次标签列占 _focusLabelW，卡片区为剩余宽度。
+        final labelW = _focusLabelW;
+        final areaW = math.max(vw - labelW, 1.0);
+        // 桌面端也保持手机般的居中比例：按最小宽度排版并居中显示。
+        final effW = math.min(areaW, 520.0);
+        _cardSpacing = effW * 0.74;
+        final cardW = effW * 0.88;
+        final contentH = _focusContentHeight();
+        final page = _pageValue;
+        final cards = <(double, Widget)>[];
+        final headers = <(double, Widget)>[];
+        for (var w = 1; w <= 7; w++) {
+          // 星期序号越大越靠右（周一在最左、周日在最右）。
+          final d = (w - 1) - page;
+          if (d.abs() > 1.15) continue; // 只构建可见的卡片
+          final t = d.abs().clamp(0.0, 1.0);
+          cards.add((
+            d.abs(),
+            _buildDayCard(w, d, t, areaW, cardW, theme, headerWeek, cellMap),
+          ));
+          // 标题行与卡片同一轨迹：一起左右平移、模糊、变淡。
+          headers.add((
+            d.abs(),
+            _buildFocusHeaderCell(w, d, t, areaW, cardW, theme, headerWeek),
+          ));
+        }
+        // 周一左侧、周日右侧的「上一周 / 下一周」占位卡：平时作为边界预览，
+        // 越界拉出后继续滑动即可切换周次。
+        const edgeWeeks = <int, String>{-1: '上一周', 7: '下一周'};
+        for (final e in edgeWeeks.entries) {
+          final d = e.key - page;
+          if (d.abs() > 1.15) continue; // 只在边界附近可见
+          final t = d.abs().clamp(0.0, 1.0);
+          cards.add((
+            d.abs(),
+            _buildWeekEdgeCard(e.value, d, t, areaW, cardW, theme),
+          ));
+        }
+        // 距离中心越远越先画，最后画的「当天」盖在邻天之上形成遮挡。
+        cards.sort((a, b) => b.$1.compareTo(a.$1));
+        headers.sort((a, b) => b.$1.compareTo(a.$1));
+        if (!_focusPositionsApplied) {
+          _focusPositionsApplied = true;
+          WidgetsBinding.instance.addPostFrameCallback(
+            (_) => _applyFocusPositions(cellMap),
+          );
+        }
+        final weekKey = ValueKey('${widget.schedule.id}-week${widget.week}');
+        // 横向翻页手势包住整个聚焦视图（固定标题行 + 纵向滚动区）：
+        // 按住标题或卡片都能左右翻页，纵向滚动仍由内层滚动视图处理。
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onHorizontalDragStart: _onPageDragStart,
+          onHorizontalDragUpdate: _onPageDragUpdate,
+          onHorizontalDragEnd: _onPageDragEnd,
+          onHorizontalDragCancel: _onPageDragCancel,
+          child: Column(
+            children: [
+              // 固定的日期标题行：位于纵向滚动之外，上下滑动时始终停留在
+              // 顶部；只随横向翻页左右移动（与下方卡片同一轨迹）。
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // 与下方节次标签列对应的「节次」表头格：样式与右侧日期
+                  // 标题格统一（背景、上圆角、底边线）。滚动时节次编号滚到
+                  // 标题行下方被其背景自然衔接，不再是透明的空白占位。
+                  Container(
+                    width: labelW,
+                    height: _focusHeaderH,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerLowest,
+                      borderRadius: BorderRadius.vertical(
+                        top: Radius.circular(16 * _scale),
+                      ),
+                      border: Border(
                         bottom: BorderSide(
-                            color: theme.dividerColor
-                                .withValues(alpha: 0.4))),
-                  ),
-                  alignment: Alignment.center,
-                  child: Text('节次',
+                          color: theme.dividerColor.withValues(alpha: 0.4),
+                        ),
+                      ),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      '节次',
                       style: TextStyle(
-                          fontSize: 11,
-                          color: theme.colorScheme.outline)),
-                ),
-                Expanded(
-                  child: ClipRect(
-                    child: SizedBox(
-                      height: _focusHeaderH,
-                      // 切换周次时（key 变化）新旧周整体淡入淡出一次。
-                      child: AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 240),
-                        switchInCurve: Curves.easeOut,
-                        switchOutCurve: Curves.easeIn,
-                        child: Stack(
-                          key: weekKey,
-                          clipBehavior: Clip.none,
-                          children: [for (final h in headers) h.$2],
+                        fontSize: 11,
+                        color: theme.colorScheme.outline,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: ClipRect(
+                      child: SizedBox(
+                        height: _focusHeaderH,
+                        // 切换周次时（key 变化）新旧周整体淡入淡出一次。
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 240),
+                          switchInCurve: Curves.easeOut,
+                          switchOutCurve: Curves.easeIn,
+                          child: Stack(
+                            key: weekKey,
+                            clipBehavior: Clip.none,
+                            children: [for (final h in headers) h.$2],
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-              ],
-            ),
-            // 下方卡片区：整个聚焦视图共用一条纵向滚动，上下滑动卡片与
-            // 左侧标签列一起动；左右翻页时纵向位置保持一致、不会突然跳变。
-            Expanded(
-              child: ClipRect(
-                child: SingleChildScrollView(
-                  controller: _dayVScroll,
-                  physics: const _ZoomWheelPhysics(),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // 左侧节次编号列：与各卡片的行对齐，并随卡片一起纵向
-                      // 滚动；餐条位置留空不写字、不上色。
-                      _buildLabelColumn(theme,
-                          width: _focusLabelW, showMealText: false),
-                      Expanded(
-                        child: ClipRect(
-                          // 把卡片裁切在卡片区内：邻天卡片不会溢到左侧标签
-                          // 列上（否则半透明的卡片会盖住节次编号，看起来像
-                          // “透明的”）。
-                          child: SizedBox(
-                            width: areaW,
-                            height: contentH,
-                            // 切换周次时（key 变化）新旧周整体淡入淡出一次，
-                            // 替代“从边界跨页滑过整周”的连续手势动画。
-                            child: AnimatedSwitcher(
-                              duration: const Duration(milliseconds: 240),
-                              switchInCurve: Curves.easeOut,
-                              switchOutCurve: Curves.easeIn,
-                              child: Stack(
-                                key: weekKey,
-                                clipBehavior: Clip.none,
-                                children: [for (final c in cards) c.$2],
+                ],
+              ),
+              // 下方卡片区：整个聚焦视图共用一条纵向滚动，上下滑动卡片与
+              // 左侧标签列一起动；左右翻页时纵向位置保持一致、不会突然跳变。
+              Expanded(
+                child: ClipRect(
+                  child: SingleChildScrollView(
+                    controller: _dayVScroll,
+                    physics: const _ZoomWheelPhysics(),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // 左侧节次编号列：与各卡片的行对齐，并随卡片一起纵向
+                        // 滚动；餐条位置留空不写字、不上色。
+                        _buildLabelColumn(
+                          theme,
+                          width: _focusLabelW,
+                          showMealText: false,
+                        ),
+                        Expanded(
+                          child: ClipRect(
+                            // 把卡片裁切在卡片区内：邻天卡片不会溢到左侧标签
+                            // 列上（否则半透明的卡片会盖住节次编号，看起来像
+                            // “透明的”）。
+                            child: SizedBox(
+                              width: areaW,
+                              height: contentH,
+                              // 切换周次时（key 变化）新旧周整体淡入淡出一次，
+                              // 替代“从边界跨页滑过整周”的连续手势动画。
+                              child: AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 240),
+                                switchInCurve: Curves.easeOut,
+                                switchOutCurve: Curves.easeIn,
+                                child: Stack(
+                                  key: weekKey,
+                                  clipBehavior: Clip.none,
+                                  children: [for (final c in cards) c.$2],
+                                ),
                               ),
                             ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-          ],
-        ),
-      );
-    });
+            ],
+          ),
+        );
+      },
+    );
   }
 
   /// 一张「当天卡片」：按与中心页的偏移 [d] 平移，按距离 [t] 缩小、虚化、变暗。
-  Widget _buildDayCard(int w, double d, double t, double vw, double cardW,
-      ThemeData theme, int headerWeek, Map<String, List<_CellEntry>> cellMap) {
+  Widget _buildDayCard(
+    int w,
+    double d,
+    double t,
+    double vw,
+    double cardW,
+    ThemeData theme,
+    int headerWeek,
+    Map<String, List<_CellEntry>> cellMap,
+  ) {
     final dx = d * _cardSpacing;
     final scale = 1 - 0.1 * t;
     final blur = 1.8 * t;
@@ -641,13 +687,24 @@ class _TimetableGridState extends State<TimetableGrid>
   /// 固定的日期标题单元：与下方卡片同一横向轨迹（dx、模糊、透明度），
   /// 但高度固定、不做纵向缩放；它位于纵向滚动之外，上下滑动时不动，
   /// 只随横向翻页左右移动。
-  Widget _buildFocusHeaderCell(int w, double d, double t, double vw,
-      double cardW, ThemeData theme, int headerWeek) {
+  Widget _buildFocusHeaderCell(
+    int w,
+    double d,
+    double t,
+    double vw,
+    double cardW,
+    ThemeData theme,
+    int headerWeek,
+  ) {
     final dx = d * _cardSpacing;
     final blur = 1.8 * t;
     final opacity = 1 - 0.3 * t;
-    Widget header =
-        _buildFocusDayHeader(w, headerWeek, theme, _isToday(w, headerWeek));
+    Widget header = _buildFocusDayHeader(
+      w,
+      headerWeek,
+      theme,
+      _isToday(w, headerWeek),
+    );
     if (blur > 0) {
       header = ImageFiltered(
         imageFilter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
@@ -673,8 +730,14 @@ class _TimetableGridState extends State<TimetableGrid>
 
   /// 周一左侧 / 周日右侧的「上一周 / 下一周」占位卡：与普通卡片同尺寸、
   /// 同运动轨迹，内容只显示箭头与文字提示。
-  Widget _buildWeekEdgeCard(String label, double d, double t, double vw,
-      double cardW, ThemeData theme) {
+  Widget _buildWeekEdgeCard(
+    String label,
+    double d,
+    double t,
+    double vw,
+    double cardW,
+    ThemeData theme,
+  ) {
     final dx = d * _cardSpacing;
     final scale = 1 - 0.1 * t;
     final opacity = 1 - 0.3 * t;
@@ -693,66 +756,66 @@ class _TimetableGridState extends State<TimetableGrid>
             behavior: HitTestBehavior.opaque,
             onTap: () => _onEdgeCardTap(label),
             child: Stack(
-            children: [
-              // 半透明底
-              Positioned.fill(
-                child: Container(
-                  margin: EdgeInsets.symmetric(horizontal: 5 * _scale),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerLowest
-                        .withValues(alpha: 0.7),
-                    borderRadius: BorderRadius.circular(16 * _scale),
-                    border: Border.all(
-                      color: theme.colorScheme.outlineVariant,
-                      width: 1,
+              children: [
+                // 半透明底
+                Positioned.fill(
+                  child: Container(
+                    margin: EdgeInsets.symmetric(horizontal: 5 * _scale),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerLowest
+                          .withValues(alpha: 0.7),
+                      borderRadius: BorderRadius.circular(16 * _scale),
+                      border: Border.all(
+                        color: theme.colorScheme.outlineVariant,
+                        width: 1,
+                      ),
                     ),
                   ),
                 ),
-              ),
-              // 提示文字放在「屏幕纵向中间」：卡片高度覆盖整周内容
-              // （可能远超屏幕），卡片正中间通常在视野外。监听纵向滚动，
-              // 让文字始终停留在屏幕可见区域的正中间。
-              // 滚动视口已不含固定标题行（视口在标题之下），
-              // 减掉 _focusHeaderH / 2 才是真正的屏幕中心。
-              ListenableBuilder(
-                listenable: _dayVScroll,
-                builder: (_, __) {
-                  final scroll =
-                      _dayVScroll.hasClients ? _dayVScroll.offset : 0.0;
-                  final viewportH = _dayVScroll.hasClients
-                      ? _dayVScroll.position.viewportDimension
-                      : 0.0;
-                  final centerY =
-                      scroll + viewportH / 2 - _focusHeaderH / 2;
-                  return Positioned(
-                    top: centerY - 26 * _scale,
-                    left: 0,
-                    right: 0,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          label == '上一周'
-                              ? Icons.chevron_left
-                              : Icons.chevron_right,
-                          size: 28,
-                          color: theme.colorScheme.outline,
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          label,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 13,
+                // 提示文字放在「屏幕纵向中间」：卡片高度覆盖整周内容
+                // （可能远超屏幕），卡片正中间通常在视野外。监听纵向滚动，
+                // 让文字始终停留在屏幕可见区域的正中间。
+                // 滚动视口已不含固定标题行（视口在标题之下），
+                // 减掉 _focusHeaderH / 2 才是真正的屏幕中心。
+                ListenableBuilder(
+                  listenable: _dayVScroll,
+                  builder: (_, __) {
+                    final scroll = _dayVScroll.hasClients
+                        ? _dayVScroll.offset
+                        : 0.0;
+                    final viewportH = _dayVScroll.hasClients
+                        ? _dayVScroll.position.viewportDimension
+                        : 0.0;
+                    final centerY = scroll + viewportH / 2 - _focusHeaderH / 2;
+                    return Positioned(
+                      top: centerY - 26 * _scale,
+                      left: 0,
+                      right: 0,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            label == '上一周'
+                                ? Icons.chevron_left
+                                : Icons.chevron_right,
+                            size: 28,
                             color: theme.colorScheme.outline,
                           ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ],
+                          const SizedBox(height: 6),
+                          Text(
+                            label,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: theme.colorScheme.outline,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ],
             ),
           ),
         ),
@@ -764,8 +827,13 @@ class _TimetableGridState extends State<TimetableGrid>
   /// 日期标题已抽到固定标题行（[_buildFocusHeaderCell]），卡片本身不独立
   /// 滚动——整个聚焦视图共用一个外层纵向滚动（[_buildFocusView] 里的
   /// `_dayVScroll`），上下滑动时 7 张卡片一起动。
-  Widget _buildDayCardBody(int w, double cardW, ThemeData theme, int headerWeek,
-      Map<String, List<_CellEntry>> cellMap) {
+  Widget _buildDayCardBody(
+    int w,
+    double cardW,
+    ThemeData theme,
+    int headerWeek,
+    Map<String, List<_CellEntry>> cellMap,
+  ) {
     final isToday = _isToday(w, headerWeek);
     return Container(
       margin: EdgeInsets.symmetric(horizontal: 5 * _scale),
@@ -773,7 +841,8 @@ class _TimetableGridState extends State<TimetableGrid>
         color: theme.colorScheme.surfaceContainerLowest,
         // 顶部与固定标题行衔接，只保留下方圆角。
         borderRadius: BorderRadius.vertical(
-            bottom: Radius.circular(16 * _scale)),
+          bottom: Radius.circular(16 * _scale),
+        ),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: isToday ? 0.2 : 0.12),
@@ -783,8 +852,13 @@ class _TimetableGridState extends State<TimetableGrid>
         ],
       ),
       clipBehavior: Clip.antiAlias,
-      child: _buildDayColumn(w, cellMap, theme,
-          overriddenWidth: cardW - 10 * _scale, showMealText: true),
+      child: _buildDayColumn(
+        w,
+        cellMap,
+        theme,
+        overriddenWidth: cardW - 10 * _scale,
+        showMealText: true,
+      ),
     );
   }
 
@@ -793,15 +867,17 @@ class _TimetableGridState extends State<TimetableGrid>
   bool _isToday(int w, int week) {
     final now = DateTime.now();
     final day = ScheduleMath.dateOf(week, w, widget.schedule);
-    return day.year == now.year &&
-        day.month == now.month &&
-        day.day == now.day;
+    return day.year == now.year && day.month == now.month && day.day == now.day;
   }
 
   /// 固定标题行上的日期标题单元：星期 + 日期 + 调休徽标；今天高亮。
   /// 高度与卡片同宽（含两侧 5px 边距），上圆角与下方卡片衔接。
   Widget _buildFocusDayHeader(
-      int w, int headerWeek, ThemeData theme, bool isToday) {
+    int w,
+    int headerWeek,
+    ThemeData theme,
+    bool isToday,
+  ) {
     final primary = theme.colorScheme.primary;
     return Container(
       margin: EdgeInsets.symmetric(horizontal: 5 * _scale),
@@ -810,11 +886,10 @@ class _TimetableGridState extends State<TimetableGrid>
         color: isToday
             ? theme.colorScheme.primaryContainer.withValues(alpha: 0.45)
             : theme.colorScheme.surfaceContainerLowest,
-        borderRadius:
-            BorderRadius.vertical(top: Radius.circular(16 * _scale)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16 * _scale)),
         border: Border(
-            bottom: BorderSide(
-                color: theme.dividerColor.withValues(alpha: 0.4))),
+          bottom: BorderSide(color: theme.dividerColor.withValues(alpha: 0.4)),
+        ),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -826,11 +901,14 @@ class _TimetableGridState extends State<TimetableGrid>
                 color: primary,
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: const Text('今天',
-                  style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white)),
+              child: const Text(
+                '今天',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+              ),
             ),
             const SizedBox(width: 5),
           ],
@@ -845,9 +923,12 @@ class _TimetableGridState extends State<TimetableGrid>
           const SizedBox(width: 6),
           Text(
             ScheduleMath.formatMd(
-                ScheduleMath.dateOf(headerWeek, w, widget.schedule)),
+              ScheduleMath.dateOf(headerWeek, w, widget.schedule),
+            ),
             style: TextStyle(
-                fontSize: 12 * _scale, color: theme.colorScheme.outline),
+              fontSize: 12 * _scale,
+              color: theme.colorScheme.outline,
+            ),
           ),
           _holidayBadge(theme, headerWeek, w),
         ],
@@ -974,13 +1055,15 @@ class _TimetableGridState extends State<TimetableGrid>
     for (var p = 1; p < target; p++) {
       offset += _rowH + _mealHeight(p);
     }
-    _dayVScroll.jumpTo(
-        offset.clamp(0.0, _dayVScroll.position.maxScrollExtent));
+    _dayVScroll.jumpTo(offset.clamp(0.0, _dayVScroll.position.maxScrollExtent));
   }
 
   /// 按当前时间选择定位目标节次：正在上的课 > 下一节 > 当天最后一节。
   int? _targetPeriodForNow(
-      int w, int nowMin, Map<String, List<_CellEntry>> cellMap) {
+    int w,
+    int nowMin,
+    Map<String, List<_CellEntry>> cellMap,
+  ) {
     final periods = <int>[];
     for (var p = 1; p <= widget.schedule.periodsPerDay; p++) {
       final entries = cellMap['${w}_$p'];
@@ -1017,9 +1100,10 @@ class _TimetableGridState extends State<TimetableGrid>
           width: _labelW,
           height: _headerH,
           child: Center(
-            child: Text('节次',
-                style: TextStyle(
-                    fontSize: 11, color: theme.colorScheme.outline)),
+            child: Text(
+              '节次',
+              style: TextStyle(fontSize: 11, color: theme.colorScheme.outline),
+            ),
           ),
         ),
         for (var w = 1; w <= 7; w++)
@@ -1035,7 +1119,9 @@ class _TimetableGridState extends State<TimetableGrid>
                     Text(
                       ScheduleMath.weekdayName(w),
                       style: const TextStyle(
-                          fontSize: 12, fontWeight: FontWeight.w500),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                     if (!widget.semesterMode)
                       _holidayBadge(theme, headerWeek, w),
@@ -1043,9 +1129,12 @@ class _TimetableGridState extends State<TimetableGrid>
                 ),
                 Text(
                   ScheduleMath.formatMd(
-                      ScheduleMath.dateOf(headerWeek, w, widget.schedule)),
+                    ScheduleMath.dateOf(headerWeek, w, widget.schedule),
+                  ),
                   style: TextStyle(
-                      fontSize: 9, color: theme.colorScheme.outline),
+                    fontSize: 9,
+                    color: theme.colorScheme.outline,
+                  ),
                 ),
               ],
             ),
@@ -1085,20 +1174,26 @@ class _TimetableGridState extends State<TimetableGrid>
   // 左侧节次标签列：每节一行 + 对应餐条占位，与右侧各列保持垂直对齐。
   // [width] 非空时使用该宽度（聚焦视图的窄标签列）；
   // [showMealText] 为 false 时餐条位置只留空（不写字、不上背景色）。
-  Widget _buildLabelColumn(ThemeData theme,
-      {double? width, bool showMealText = true}) {
+  Widget _buildLabelColumn(
+    ThemeData theme, {
+    double? width,
+    bool showMealText = true,
+  }) {
     final w = width ?? _labelW;
     final children = <Widget>[];
     for (var p = 1; p <= widget.schedule.periodsPerDay; p++) {
-      children.add(SizedBox(
-        width: w,
-        height: _rowH,
-        child: Center(
-          child: Text('$p',
-              style: const TextStyle(
-                  fontSize: 13, fontWeight: FontWeight.bold)),
+      children.add(
+        SizedBox(
+          width: w,
+          height: _rowH,
+          child: Center(
+            child: Text(
+              '$p',
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+            ),
+          ),
         ),
-      ));
+      );
       if (showMealText) {
         children.addAll(_mealCells(p, w, theme, showText: true));
       } else {
@@ -1139,20 +1234,25 @@ class _TimetableGridState extends State<TimetableGrid>
         children.add(_spanBlock(entries, h, width, theme));
         // 块覆盖第 p..maxEnd 节；第 maxEnd 节之后的餐条补在块下方，
         // 否则该列少一段高度、与其它列错位（如课在饭前格子时餐条消失）。
-        children.addAll(_mealCells(maxEnd, width, theme, showText: showMealText));
+        children.addAll(
+          _mealCells(maxEnd, width, theme, showText: showMealText),
+        );
         p = maxEnd + 1;
       } else {
-        children.add(SizedBox(
-          width: width,
-          height: _rowH,
-          child: Container(
-            decoration: BoxDecoration(
-              border: Border.all(
+        children.add(
+          SizedBox(
+            width: width,
+            height: _rowH,
+            child: Container(
+              decoration: BoxDecoration(
+                border: Border.all(
                   color: theme.dividerColor.withValues(alpha: 0.45),
-                  width: 0.6),
+                  width: 0.6,
+                ),
+              ),
             ),
           ),
-        ));
+        );
         children.addAll(_mealCells(p, width, theme, showText: showMealText));
         p++;
       }
@@ -1165,7 +1265,11 @@ class _TimetableGridState extends State<TimetableGrid>
 
   // 课程跨行块：一节或多节课并排，整体高度跨多个节次。
   Widget _spanBlock(
-      List<_CellEntry> entries, double height, double width, ThemeData theme) {
+    List<_CellEntry> entries,
+    double height,
+    double width,
+    ThemeData theme,
+  ) {
     // 本学期模式：同一门课在同格内的多条上课时间合并为一个方块
     // （如不同上课周/地点，块内每时段一行）；不同课程仍并排。
     // 单周模式：每条上课时间独立方块并排。
@@ -1188,7 +1292,9 @@ class _TimetableGridState extends State<TimetableGrid>
         padding: EdgeInsets.all(2 * _scale),
         decoration: BoxDecoration(
           border: Border.all(
-              color: theme.dividerColor.withValues(alpha: 0.45), width: 0.6),
+            color: theme.dividerColor.withValues(alpha: 0.45),
+            width: 0.6,
+          ),
         ),
         child: Row(
           children: [
@@ -1227,18 +1333,23 @@ class _TimetableGridState extends State<TimetableGrid>
 
   // 第 [period] 节后的餐条条（一条午餐/一条晚餐，高度各 24）。
   List<Widget> _mealCells(
-      int period, double width, ThemeData theme,
-      {required bool showText}) {
+    int period,
+    double width,
+    ThemeData theme, {
+    required bool showText,
+  }) {
     final cells = <Widget>[];
     if (widget.schedule.lunch.enabled &&
         widget.schedule.lunch.afterPeriod == period) {
       cells.add(
-          _mealBar(theme, width, showText ? widget.schedule.lunch.label : null));
+        _mealBar(theme, width, showText ? widget.schedule.lunch.label : null),
+      );
     }
     if (widget.schedule.dinner.enabled &&
         widget.schedule.dinner.afterPeriod == period) {
-      cells.add(_mealBar(
-          theme, width, showText ? widget.schedule.dinner.label : null));
+      cells.add(
+        _mealBar(theme, width, showText ? widget.schedule.dinner.label : null),
+      );
     }
     return cells;
   }
@@ -1256,7 +1367,9 @@ class _TimetableGridState extends State<TimetableGrid>
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                  fontSize: 10, color: theme.colorScheme.onSurfaceVariant),
+                fontSize: 10,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
     );
   }
