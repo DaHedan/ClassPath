@@ -5,9 +5,9 @@ import '../services/schedule_math.dart';
 
 /// 课程表中的单个课程方块：显示课程名、教师、上课时间、上课周与地点。
 ///
-/// [times] 为本学期模式下同格内合并的同一门课的各时段（如不同上课周、
-/// 不同地点），每条显示一行「上课周+地点」；单周模式只有一个时段，
-/// 只显示地点、不显示上课周。
+/// [times] 为网格模式（单周 / 本学期）下同格内合并的同一门课的各时段
+/// （如不同上课周、不同地点），每条显示一行「上课周+地点」；单日模式只有
+/// 一个时段，只显示地点、不显示上课周。
 class CourseBlock extends StatelessWidget {
   final Course course;
   final VoidCallback onTap;
@@ -15,16 +15,16 @@ class CourseBlock extends StatelessWidget {
   /// 该方块包含的上课时段（至少一个）。
   final List<ClassTime> times;
 
-  /// 是否显示上课周（本学期模式为 true，单周模式为 false）。
+  /// 是否显示上课周（网格模式为 true，单日模式为 false）。
   final bool showWeeks;
 
-  /// 是否在课程名前显示课程编号（单周模式为 true）。
+  /// 是否在课程名前显示课程编号（单日模式为 true）。
   final bool showId;
 
   /// 网格缩放倍率：随缩放等比例放大字号与内边距。
   final double scale;
 
-  /// 单周模式（showId）卡片更宽，文字整体放大一档。
+  /// 单日模式（showId）卡片更宽，文字整体放大一档。
   double get _fontK => showId ? 1.2 : 1.0;
 
   const CourseBlock({

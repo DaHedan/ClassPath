@@ -27,13 +27,18 @@ class SettingsPage extends StatelessWidget {
             child: SegmentedButton<TimetableMode>(
               segments: const [
                 ButtonSegment(
-                  value: TimetableMode.currentWeek,
-                  label: Text('单周模式'),
+                  value: TimetableMode.day,
+                  label: Text('单日'),
+                  icon: Icon(Icons.view_day_outlined),
+                ),
+                ButtonSegment(
+                  value: TimetableMode.week,
+                  label: Text('单周'),
                   icon: Icon(Icons.view_week_outlined),
                 ),
                 ButtonSegment(
                   value: TimetableMode.semester,
-                  label: Text('本学期模式'),
+                  label: Text('本学期'),
                   icon: Icon(Icons.calendar_month_outlined),
                 ),
               ],

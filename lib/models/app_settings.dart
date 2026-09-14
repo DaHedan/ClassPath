@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 
 /// 主页课程表显示模式。
 enum TimetableMode {
-  /// 单周模式：显示所选周，可选择周次（默认当前周）。
-  currentWeek,
+  /// 单日模式：聚焦一天，左右滑动切换星期（默认当天）。
+  day,
+
+  /// 单周模式：把所选周的一周并排显示，可选择周次（默认当前周）。
+  week,
 
   /// 本学期模式：不区分周次，显示整学期课程。
   semester,
@@ -26,7 +29,7 @@ class AppSettings {
 
   AppSettings({
     this.activeScheduleId,
-    this.mode = TimetableMode.currentWeek,
+    this.mode = TimetableMode.day,
     this.themeMode = ThemeMode.system,
     this.agreementVersion,
   });
@@ -49,9 +52,7 @@ class AppSettings {
 
   factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
         activeScheduleId: json['activeScheduleId'] as String?,
-        mode: json['mode'] == 'semester'
-            ? TimetableMode.semester
-            : TimetableMode.currentWeek,
+        mode: _modeFromName(json['mode'] as String?),
         themeMode: _themeFromName(json['themeMode'] as String?),
         agreementVersion: json['agreementVersion'] as String?,
       );
@@ -62,6 +63,19 @@ class AppSettings {
         'themeMode': themeMode.name,
         'agreementVersion': agreementVersion,
       };
+
+  /// 解析持久化的模式名。旧版本的「单周」实为单日聚焦视图，
+  /// 其存储值 'currentWeek' 归入单日模式。
+  static TimetableMode _modeFromName(String? name) {
+    switch (name) {
+      case 'semester':
+        return TimetableMode.semester;
+      case 'week':
+        return TimetableMode.week;
+      default:
+        return TimetableMode.day;
+    }
+  }
 
   static ThemeMode _themeFromName(String? name) {
     switch (name) {

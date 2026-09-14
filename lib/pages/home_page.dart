@@ -19,7 +19,8 @@ import 'settings_page.dart';
 ///
 /// - 无课程表时显示「添加课程表」按钮；
 /// - 标题为课程表名称（点击切换课程表）；
-/// - 网格上方为单周 / 本学期模式切换，单周模式下可选择周次（默认当前周）；
+/// - 网格上方为单日 / 单周 / 本学期模式切换，单日与单周模式下可选择周次
+///   （默认当前周）；
 /// - 网格下方为考试安排卡片区；
 /// - 右上角菜单进入课程表管理与设置，另有添加快捷入口。
 class HomePage extends StatefulWidget {
@@ -33,8 +34,7 @@ class _HomePageState extends State<HomePage> {
   late int _week;
   final _gridController = TimetableGridController();
 
-  bool get _semesterMode =>
-      context.read<AppState>().settings.mode == TimetableMode.semester;
+  TimetableMode get _mode => context.read<AppState>().settings.mode;
 
   @override
   void initState() {
@@ -289,12 +289,12 @@ class _HomePageState extends State<HomePage> {
     final theme = Theme.of(context);
     final courses = app.coursesOf(schedule.id);
 
-    // 考试列表：单周模式只显示所选周的考试，本学期模式显示全部，按日期排序。
+    // 考试列表：单日 / 单周模式只显示所选周的考试，本学期模式显示全部，按日期排序。
     final examCourses =
         courses.where((c) {
             final e = c.exam;
             if (e == null || e.isEmpty || e.date == null) return false;
-            if (_semesterMode) return true;
+            if (_mode == TimetableMode.semester) return true;
             return ScheduleMath.weekNumberOf(schedule, e.date!) == _week;
           }).toList()
           // 考试安排按时间排序：先日期，同一天的再按考试开始时间，早的在上。
@@ -342,11 +342,11 @@ class _HomePageState extends State<HomePage> {
               schedule: schedule,
               courses: courses,
               week: _week,
-              semesterMode: _semesterMode,
+              mode: _mode,
               controller: _gridController,
               onCourseTap: _openCourse,
               holidays: app.holidays,
-              // 单周模式在周一/周日边界继续滑动时切换周次。
+              // 单日模式在周一/周日边界继续滑动时切换周次。
               onWeekChange: (w) {
                 if (!mounted) return;
                 final s = context.read<AppState>().activeSchedule;
@@ -383,10 +383,11 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  /// 网格上方的模式切换条：单周 / 本学期切换按钮靠左，单周模式下
-  /// 「第几周」选择器在同一行、按钮右侧。
+  /// 网格上方的模式切换条：单日 / 单周 / 本学期切换按钮靠左，
+  /// 单日与单周模式下「第几周」选择器在同一行、按钮右侧。
   Widget _buildModeBar(ThemeData theme, Schedule schedule) {
     final app = context.read<AppState>();
+    final mode = app.settings.mode;
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
       child: Row(
@@ -401,20 +402,18 @@ class _HomePageState extends State<HomePage> {
               textStyle: const TextStyle(fontSize: 12),
             ),
             segments: const [
-              ButtonSegment(
-                value: TimetableMode.currentWeek,
-                label: Text('单周'),
-              ),
+              ButtonSegment(value: TimetableMode.day, label: Text('单日')),
+              ButtonSegment(value: TimetableMode.week, label: Text('单周')),
               ButtonSegment(
                 value: TimetableMode.semester,
                 label: Text('本学期'),
               ),
             ],
-            selected: {app.settings.mode},
+            selected: {mode},
             onSelectionChanged: (v) =>
                 app.updateSettings(app.settings.copyWith(mode: v.first)),
           ),
-          if (!_semesterMode) ...[
+          if (mode != TimetableMode.semester) ...[
             const SizedBox(width: 8),
             Expanded(
               child: InkWell(

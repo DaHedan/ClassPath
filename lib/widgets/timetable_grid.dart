@@ -5,6 +5,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../models/app_settings.dart';
 import '../models/course.dart';
 import '../models/schedule.dart';
 import '../services/holiday_service.dart';
@@ -16,7 +17,7 @@ class TimetableGridController {
   final ScrollController hScroll = ScrollController();
   double labelW = 0;
 
-  /// 7 个星期的列宽（本学期模式下含并排课的列更宽）。
+  /// 7 个星期的列宽（网格模式下含并排课的列更宽）。
   List<double> dayWidths = const [];
 
   /// 把某一天的列滚动到屏幕中央。滚动视图未就绪时返回 false。
@@ -51,20 +52,22 @@ class _CellEntry {
 
 /// 课程表网格。
 ///
-/// - 横向可左右滑动，默认当天那列位于屏幕中央；
-/// - 纵向滚动浏览全部节次；
-/// - 单周模式按所选周过滤课程；本学期模式不分周，同一格子内多门课程左右分列；
-/// - 单周模式下按日期应用节假日调休：放假停课；调休补班日按课程表的
-///   调休安排（RescheduleDay）搬入「原本日期」那天的课。
+/// 三种显示模式（[TimetableMode]）：
+/// - 单日模式：聚焦一天，左右滑动切换星期；默认当天居中；
+/// - 单周模式：把所选周的一周并排显示（与整学期网格同布局），可选周次；
+/// - 本学期模式：不分周，同一格子内多门课程左右分列。
+///
+/// 单日 / 单周模式按日期应用节假日调休：放假停课；调休补班日按课程表的
+/// 调休安排（RescheduleDay）搬入「原本日期」那天的课。
 class TimetableGrid extends StatefulWidget {
   final Schedule schedule;
   final List<Course> courses;
   final int week;
-  final bool semesterMode;
+  final TimetableMode mode;
   final TimetableGridController controller;
   final void Function(Course course, ClassTime time) onCourseTap;
 
-  /// 单周模式在周一/周日边界继续滑动时切换周次（上一周/下一周）。
+  /// 单日模式在周一/周日边界继续滑动时切换周次（上一周/下一周）。
   final ValueChanged<int>? onWeekChange;
 
   /// 国务院节假日调休缓存：date("YYYY-MM-DD") -> 是否放假。
@@ -75,7 +78,7 @@ class TimetableGrid extends StatefulWidget {
     required this.schedule,
     required this.courses,
     required this.week,
-    required this.semesterMode,
+    required this.mode,
     required this.controller,
     required this.onCourseTap,
     required this.holidays,
@@ -100,7 +103,7 @@ class _TimetableGridState extends State<TimetableGrid>
   static const double _minScale = 0.6;
   static const double _maxScale = 2.5;
 
-  /// 本学期模式：同一格内并排多门课时，该列加宽的比例。
+  /// 网格模式：同一格内并排多门课时，该列加宽的比例。
   static const double _sharedColFactor = 1.5;
 
   /// 触控板双指缩放基准（PointerPanZoom 的 scale 是相对手势起点的累计值）。
@@ -116,7 +119,7 @@ class _TimetableGridState extends State<TimetableGrid>
   /// 最近一次 build 计算的各列宽度（供滚动居中与缩放锚定使用）。
   List<double> _dayWidths = const [];
 
-  /// 单周模式「聚焦当天」：当前居中显示第几天（0 基，0=周一 … 6=周日）。
+  /// 单日模式「聚焦当天」：当前居中显示第几天（0 基，0=周一 … 6=周日）。
   /// 用拖动手势 + 动画驱动，而非 PageView —— 自定义 Stack 才能控制
   /// 「当天遮挡邻天」的图层叠放顺序（中心最后画、盖在最上层）。
   double _pageValue = DateTime.now().weekday - 1;
@@ -132,7 +135,7 @@ class _TimetableGridState extends State<TimetableGrid>
   /// 相邻卡片中心的间距（由布局阶段确定，拖动回调复用）。
   double _cardSpacing = 300;
 
-  /// 单周模式聚焦视图共用的纵向滚动控制器：上下滑动时 7 张卡片一起动，
+  /// 单日模式聚焦视图共用的纵向滚动控制器：上下滑动时 7 张卡片一起动，
   /// 左右翻页时纵向位置保持一致、不会突然跳变。
   final ScrollController _dayVScroll = ScrollController();
 
@@ -148,7 +151,7 @@ class _TimetableGridState extends State<TimetableGrid>
   double get _rowH => baseRowH * _scale;
   double get _headerH => baseHeaderH * _scale;
 
-  /// 单周模式聚焦视图：卡片顶部日期标题的高度。
+  /// 单日模式聚焦视图：卡片顶部日期标题的高度。
   double get _focusHeaderH => 44 * _scale;
 
   /// 聚焦视图左侧节次标签列宽度：只显示节次编号，比学期视图的标签列更窄。
@@ -173,12 +176,14 @@ class _TimetableGridState extends State<TimetableGrid>
   @override
   void didUpdateWidget(TimetableGrid oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // 切换课程表或切换周次后，都重新把当天列定位到中央。
+    // 切换课程表、切换显示模式或切换周次后，都重新把视图定位到当天。
     // 注意：不要按“所选周课程最集中的列”定位——课程集中在周一时居中偏移为负，
     // 被 clamp 到 0 会导致视图贴左（用户反馈的“跑左边”问题）。
+    final modeChanged = oldWidget.mode != widget.mode;
+    final weekChanged = oldWidget.week != widget.week;
     if (oldWidget.schedule.id != widget.schedule.id ||
-        (!widget.semesterMode && oldWidget.week != widget.week) ||
-        (oldWidget.semesterMode && !widget.semesterMode)) {
+        modeChanged ||
+        (weekChanged && widget.mode != TimetableMode.semester)) {
       if (_suppressAutoCenterOnce) {
         // 边界滑动切换周次：保持当前横向页（边界日）与纵向位置不变，
         // 既不跳回「今天」，也不重新定位纵向滚动。
@@ -197,11 +202,12 @@ class _TimetableGridState extends State<TimetableGrid>
     );
   }
 
-  /// 居中到当天列；连续几帧重复确认，兜底滚动位置被后续布局（如
-  /// 底部考试面板高度变化）重置、或首帧尚未就绪的情况。
+  /// 居中到当天：单日模式切到「今天」那一页，网格模式滚动到当天那列。
+  /// 连续几帧重复确认，兜底滚动位置被后续布局（如底部考试面板高度变化）
+  /// 重置、或首帧尚未就绪的情况。
   void _centerToday({required int remaining}) {
     if (!mounted) return;
-    if (!widget.semesterMode) {
+    if (widget.mode == TimetableMode.day) {
       // 聚焦视图：直接切到「今天」那一页。
       final today = DateTime.now().weekday - 1;
       if (_pageValue != today) {
@@ -307,10 +313,10 @@ class _TimetableGridState extends State<TimetableGrid>
 
   void _onTouchPointerCancel(PointerCancelEvent e) => _onTouchPointerEnd(e);
 
-  /// 各列宽度：本学期模式下，含并排多门课的列按 _sharedColFactor 加宽；
-  /// 单周模式各列等宽。
+  /// 各列宽度：网格模式（单周 / 本学期）下，含并排多门课的列按
+  /// _sharedColFactor 加宽；单日模式各列等宽。
   List<double> _dayWidthsOf(Map<String, List<_CellEntry>> cellMap) {
-    if (!widget.semesterMode) {
+    if (widget.mode == TimetableMode.day) {
       return [for (var i = 0; i < 7; i++) _colW];
     }
     final shared = <int>{};
@@ -342,17 +348,17 @@ class _TimetableGridState extends State<TimetableGrid>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final headerWeek = widget.semesterMode
+    final headerWeek = widget.mode == TimetableMode.semester
         ? ScheduleMath.currentWeekOfNow(widget.schedule)
         : widget.week;
 
     // 统计每个「星期x + 第y节」格子里的课程（挂在节次段的起始节下）。
     final cellMap = <String, List<_CellEntry>>{};
-    // 单周模式下调休补班：补班日照搬其 source（指定日期）那天的课，
+    // 单日 / 单周模式下调休补班：补班日照搬其 source（指定日期）那天的课，
     // 因此需按指定日期匹配，而不能只按星期几匹配。
     // rescheduleSources: 补班日所在星期几 → source 日期。
     final rescheduleSources = <int, DateTime>{};
-    if (!widget.semesterMode) {
+    if (widget.mode != TimetableMode.semester) {
       for (final r in widget.schedule.reschedules) {
         final target = DateTime.parse(r.date);
         if (ScheduleMath.weekNumberOf(widget.schedule, target) != widget.week) {
@@ -364,7 +370,7 @@ class _TimetableGridState extends State<TimetableGrid>
     for (final course in widget.courses) {
       if (course.scheduleId != widget.schedule.id) continue;
       for (final ct in course.classTimes) {
-        if (!widget.semesterMode) {
+        if (widget.mode != TimetableMode.semester) {
           final date = ScheduleMath.dateOf(
             widget.week,
             ct.weekday,
@@ -400,7 +406,7 @@ class _TimetableGridState extends State<TimetableGrid>
       }
     }
 
-    // 计算各列宽度（本学期模式下含并排课的列加宽），供布局与滚动居中使用。
+    // 计算各列宽度（网格模式下含并排课的列加宽），供布局与滚动居中使用。
     _dayWidths = _dayWidthsOf(cellMap);
     // 同步到控制器，保证缩放后“跳转到某一天”仍用最新尺寸定位。
     widget.controller.labelW = _labelW;
@@ -421,16 +427,18 @@ class _TimetableGridState extends State<TimetableGrid>
           onPointerMove: _onTouchPointerMove,
           onPointerUp: _onTouchPointerEnd,
           onPointerCancel: _onTouchPointerCancel,
-          child: widget.semesterMode
-              ? _buildSemesterView(theme, headerWeek, cellMap, totalW)
-              : _buildFocusView(theme, headerWeek, cellMap),
+          child: widget.mode == TimetableMode.day
+              ? _buildFocusView(theme, headerWeek, cellMap)
+              : _buildGridView(theme, headerWeek, cellMap, totalW),
         );
       },
     );
   }
 
-  /// 本学期模式的整张网格：左侧节次列 + 7 天列，外层横向滚动、内层纵向滚动。
-  Widget _buildSemesterView(
+  /// 网格模式（单周 / 本学期）的整张网格：左侧节次列 + 7 天列，
+  /// 外层横向滚动、内层纵向滚动。单周模式只显示所选周，本学期模式显示全部。
+  /// 两者共用同一套布局，区别仅在 [build] 中计算出的 cellMap 与表头周次。
+  Widget _buildGridView(
     ThemeData theme,
     int headerWeek,
     Map<String, List<_CellEntry>> cellMap,
@@ -464,7 +472,7 @@ class _TimetableGridState extends State<TimetableGrid>
     );
   }
 
-  /// 单周模式「聚焦当天」视图：
+  /// 单日模式「聚焦当天」视图：
   /// - 当天卡片居中、最宽、最清晰，左右两天缩小、虚化、被当天遮挡一点；
   /// - 左右滑动切换日期；
   /// - 外层共用一个纵向滚动，上下滑动时 7 张卡片整体一起动；
@@ -1121,7 +1129,7 @@ class _TimetableGridState extends State<TimetableGrid>
                         fontWeight: FontWeight.w500,
                       ),
                     ),
-                    if (!widget.semesterMode)
+                    if (widget.mode != TimetableMode.semester)
                       _holidayBadge(theme, headerWeek, w),
                   ],
                 ),
@@ -1141,7 +1149,7 @@ class _TimetableGridState extends State<TimetableGrid>
     );
   }
 
-  // 单周模式下表头的调休徽标：放假日标「休」，调休补班日标「班」。
+  // 单日 / 单周模式下表头的调休徽标：放假日标「休」，调休补班日标「班」。
   Widget _holidayBadge(ThemeData theme, int week, int weekday) {
     final date = ScheduleMath.dateOf(week, weekday, widget.schedule);
     final v = widget.holidays[ScheduleMath.dateStr(date)];
@@ -1205,8 +1213,8 @@ class _TimetableGridState extends State<TimetableGrid>
   }
 
   // 单列（某星期）内容：空节占位 + 课程跨行块 + 餐条占位。
-  // [overriddenWidth] 非空时用该宽度（单周模式聚焦视图的宽卡片）；
-  // [showMealText] 为真时餐条上写「午餐/晚餐」文字（单周模式聚焦卡片）。
+  // [overriddenWidth] 非空时用该宽度（单日模式聚焦视图的宽卡片）；
+  // [showMealText] 为真时餐条上写「午餐/晚餐」文字（单日模式聚焦卡片）。
   Widget _buildDayColumn(
     int w,
     Map<String, List<_CellEntry>> cellMap,
@@ -1268,11 +1276,11 @@ class _TimetableGridState extends State<TimetableGrid>
     double width,
     ThemeData theme,
   ) {
-    // 本学期模式：同一门课在同格内的多条上课时间合并为一个方块
-    // （如不同上课周/地点，块内每时段一行）；不同课程仍并排。
-    // 单周模式：每条上课时间独立方块并排。
+    // 网格模式（单周 / 本学期）：同一门课在同格内的多条上课时间合并为一个
+    // 方块（如不同上课周/地点，块内每时段一行）；不同课程仍并排。
+    // 单日模式：每条上课时间独立方块并排。
     final groups = <List<_CellEntry>>[];
-    if (widget.semesterMode) {
+    if (widget.mode != TimetableMode.day) {
       final byCourse = <String, List<_CellEntry>>{};
       for (final e in entries) {
         byCourse.putIfAbsent(e.course.uid, () => []).add(e);
@@ -1301,10 +1309,10 @@ class _TimetableGridState extends State<TimetableGrid>
                 child: CourseBlock(
                   course: group.first.course,
                   times: [for (final e in group) e.time],
-                  showWeeks: widget.semesterMode,
-                  // 单周模式显示课程编号；卡片更宽，字号略放大提升可读性。
-                  showId: !widget.semesterMode,
-                  scale: widget.semesterMode ? _scale : _scale * 1.2,
+                  showWeeks: widget.mode != TimetableMode.day,
+                  // 单日模式显示课程编号；卡片更宽，字号略放大提升可读性。
+                  showId: widget.mode == TimetableMode.day,
+                  scale: widget.mode == TimetableMode.day ? _scale * 1.2 : _scale,
                   onTap: () =>
                       widget.onCourseTap(group.first.course, group.first.time),
                 ),
