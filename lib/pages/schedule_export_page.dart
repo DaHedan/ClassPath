@@ -37,15 +37,16 @@ class ScheduleExportPage extends StatefulWidget {
 }
 
 class _ScheduleExportPageState extends State<ScheduleExportPage> {
-  late final String? _payload = ScheduleShareService.qrPayload(
-    widget.schedule,
-    widget.courses,
-  );
-  late final String _json = ScheduleShareService.encode(
-    widget.schedule,
-    widget.courses,
-  );
-  late final bool _compressed = _payload?.startsWith(compressedMagic) ?? false;
+  /// 分享内容选项：进入页面时弹出选择，决定实际导出的内容。
+  ShareOptions _options = const ShareOptions();
+
+  /// 当前选项下实际导出的数据。
+  late String _json;
+  String? _payload;
+  bool _compressed = false;
+
+  /// 当前选项下实际导出的课程数。
+  int _courseCount = 0;
 
   /// 页面展示的二维码：与导出/分享的图片同源（离屏渲染），
   /// 保证"软件里看到的"和"保存出去的"完全一致。
@@ -54,7 +55,53 @@ class _ScheduleExportPageState extends State<ScheduleExportPage> {
   @override
   void initState() {
     super.initState();
+    _rebuildPayload();
     _loadDisplayQr();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _openOptions());
+  }
+
+  /// 按当前分享内容选项重新生成导出数据。
+  void _rebuildPayload() {
+    final pkg = ScheduleShareService.filtered(
+      widget.schedule,
+      widget.courses,
+      _options,
+    );
+    _json = ScheduleShareService.encode(pkg.schedule, pkg.courses);
+    _payload = ScheduleShareService.qrPayload(pkg.schedule, pkg.courses);
+    _compressed = _payload?.startsWith(compressedMagic) ?? false;
+    _courseCount = pkg.courses.length;
+  }
+
+  /// 弹出「分享内容」选择弹窗；确认后按新选项重新生成二维码与数据。
+  Future<void> _openOptions() async {
+    if (!mounted) return;
+    final result = await showDialog<ShareOptions>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _ShareOptionsDialog(initial: _options),
+    );
+    if (result == null || !mounted) return;
+    setState(() {
+      _options = result;
+      _rebuildPayload();
+      _displayQrPng = null;
+    });
+    _loadDisplayQr();
+  }
+
+  /// 「分享内容」摘要：列出当前勾选的可选内容。
+  String _optionsSummary() {
+    final parts = <String>[
+      if (_options.meals) '用餐时间',
+      if (_options.reschedules) '调休安排',
+      if (_options.courses) '课程',
+      if (_options.courses && _options.teacher) '教师',
+      if (_options.courses && _options.remind) '提前提醒',
+      if (_options.courses && _options.exam) '考试信息',
+      if (_options.courses && _options.note) '备注',
+    ];
+    return parts.isEmpty ? '仅课程表基本信息' : parts.join('、');
   }
 
   Future<void> _loadDisplayQr() async {
@@ -375,11 +422,25 @@ class _ScheduleExportPageState extends State<ScheduleExportPage> {
               ),
               title: Text(s.name, maxLines: 1, overflow: TextOverflow.ellipsis),
               subtitle: Text(
-                '${s.info} · ${widget.courses.length}门课\n'
+                '${s.info} · $_courseCount门课\n'
                 '第一周周一 ${_dateText(s.firstMonday)}',
                 style: const TextStyle(fontSize: 12),
               ),
               isThreeLine: true,
+            ),
+          ),
+          const SizedBox(height: 12),
+          // 分享内容：可选内容在此调整。
+          Card(
+            child: ListTile(
+              leading: Icon(Icons.tune, color: theme.colorScheme.primary),
+              title: const Text('分享内容'),
+              subtitle: Text(
+                _optionsSummary(),
+                style: const TextStyle(fontSize: 12),
+              ),
+              trailing: const Icon(Icons.chevron_right, size: 20),
+              onTap: _openOptions,
             ),
           ),
           const SizedBox(height: 16),
@@ -487,4 +548,76 @@ class _ScheduleExportPageState extends State<ScheduleExportPage> {
 
   static String _dateText(DateTime d) =>
       '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+}
+
+/// 分享内容选择弹窗：勾选随课程表一起分享的可选内容。
+///
+/// 课程未勾选时，教师 / 提前提醒 / 考试信息 / 备注变灰不可选。
+class _ShareOptionsDialog extends StatefulWidget {
+  final ShareOptions initial;
+
+  const _ShareOptionsDialog({required this.initial});
+
+  @override
+  State<_ShareOptionsDialog> createState() => _ShareOptionsDialogState();
+}
+
+class _ShareOptionsDialogState extends State<_ShareOptionsDialog> {
+  late ShareOptions _options = widget.initial;
+
+  void _update(ShareOptions next) => setState(() => _options = next);
+
+  @override
+  Widget build(BuildContext context) {
+    final hasCourses = _options.courses;
+    return AlertDialog(
+      title: const Text('分享内容'),
+      content: SizedBox(
+        width: 320,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _tile('用餐时间', _options.meals,
+                  (v) => _update(_options.copyWith(meals: v))),
+              _tile('调休安排', _options.reschedules,
+                  (v) => _update(_options.copyWith(reschedules: v))),
+              _tile('课程', _options.courses,
+                  (v) => _update(_options.copyWith(courses: v))),
+              _tile('教师', _options.teacher,
+                  hasCourses ? (v) => _update(_options.copyWith(teacher: v)) : null),
+              _tile('提前提醒', _options.remind,
+                  hasCourses ? (v) => _update(_options.copyWith(remind: v)) : null),
+              _tile('考试信息', _options.exam,
+                  hasCourses ? (v) => _update(_options.copyWith(exam: v)) : null),
+              _tile('备注', _options.note,
+                  hasCourses ? (v) => _update(_options.copyWith(note: v)) : null),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _options),
+          child: const Text('确定'),
+        ),
+      ],
+    );
+  }
+
+  /// 单个勾选项；[onChanged] 为空表示变灰不可选。
+  Widget _tile(String label, bool value, ValueChanged<bool>? onChanged) {
+    return CheckboxListTile(
+      contentPadding: EdgeInsets.zero,
+      dense: true,
+      controlAffinity: ListTileControlAffinity.leading,
+      title: Text(label),
+      value: value,
+      onChanged: onChanged == null ? null : (v) => onChanged(v ?? false),
+    );
+  }
 }

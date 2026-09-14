@@ -41,9 +41,107 @@ class ScheduleSharePackage {
 /// 压缩载荷的前缀，用于解码时区分「原始 JSON」与「gzip 压缩的数据」。
 const String compressedMagic = 'classpath:gz:';
 
+/// 分享内容选项：控制哪些可选内容随课程表一起分享。
+///
+/// 未列出的内容（课程表名称、周数、第一周周一、节次时间、上课时间与地点、
+/// 课程编号与颜色等）固定分享。
+class ShareOptions {
+  /// 用餐时间（午/晚餐）。
+  final bool meals;
+
+  /// 调休安排。
+  final bool reschedules;
+
+  /// 课程（含上课时间、地点、编号、颜色等）。
+  final bool courses;
+
+  /// 教师。
+  final bool teacher;
+
+  /// 提前提醒。
+  final bool remind;
+
+  /// 考试信息。
+  final bool exam;
+
+  /// 备注。
+  final bool note;
+
+  const ShareOptions({
+    this.meals = true,
+    this.reschedules = true,
+    this.courses = true,
+    this.teacher = true,
+    this.remind = false,
+    this.exam = true,
+    this.note = false,
+  });
+
+  ShareOptions copyWith({
+    bool? meals,
+    bool? reschedules,
+    bool? courses,
+    bool? teacher,
+    bool? remind,
+    bool? exam,
+    bool? note,
+  }) =>
+      ShareOptions(
+        meals: meals ?? this.meals,
+        reschedules: reschedules ?? this.reschedules,
+        courses: courses ?? this.courses,
+        teacher: teacher ?? this.teacher,
+        remind: remind ?? this.remind,
+        exam: exam ?? this.exam,
+        note: note ?? this.note,
+      );
+}
+
 /// 课程表分享：编码 / 解码 / 二维码载荷压缩 / 从图片解码二维码。
 class ScheduleShareService {
   ScheduleShareService._();
+
+  /// 按 [options] 过滤出实际分享的数据包：
+  /// 未勾选的用餐时间 / 调休安排 / 课程会整体置空，
+  /// 未勾选的教师 / 提前提醒 / 考试信息 / 备注按课程逐条清空。
+  static ScheduleSharePackage filtered(
+    Schedule schedule,
+    List<Course> courses,
+    ShareOptions options,
+  ) {
+    final s = Schedule(
+      id: schedule.id,
+      name: schedule.name,
+      totalWeeks: schedule.totalWeeks,
+      firstMonday: schedule.firstMonday,
+      periodsPerDay: schedule.periodsPerDay,
+      buildings: schedule.buildings.map((b) => b.copy()).toList(),
+      lunch: options.meals
+          ? schedule.lunch.copy()
+          : MealTime(afterPeriod: 0, label: schedule.lunch.label),
+      dinner: options.meals
+          ? schedule.dinner.copy()
+          : MealTime(afterPeriod: 0, label: schedule.dinner.label),
+      reschedules: options.reschedules
+          ? schedule.reschedules.map((r) => r.copy()).toList()
+          : [],
+    );
+    final cs = options.courses
+        ? [
+            for (final c in courses) _filterCourse(c, options),
+          ]
+        : <Course>[];
+    return ScheduleSharePackage(schedule: s, courses: cs);
+  }
+
+  static Course _filterCourse(Course c, ShareOptions o) {
+    final n = c.copy();
+    if (!o.teacher) n.teacher = null;
+    if (!o.remind) n.remindMinutes = null;
+    if (!o.exam) n.exam = null;
+    if (!o.note) n.note = null;
+    return n;
+  }
 
   /// 编码为紧凑 JSON 字符串（用于导出文件）。
   static String encode(Schedule schedule, List<Course> courses) =>
