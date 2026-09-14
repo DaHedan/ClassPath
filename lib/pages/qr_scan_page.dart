@@ -34,7 +34,7 @@ class _QrScanPageState extends State<QrScanPage> {
   /// 从相册选择一张含二维码的图片解码；识别失败则留在本页提示。
   Future<void> _pickFromGallery() async {
     if (_handled) return;
-    final result = await FilePicker.pickFiles(
+    final result = await FilePicker.platform.pickFiles(
       dialogTitle: '选择包含二维码的图片',
       // 用 image 类型走系统相册选择器（显示全部图片、无需存储权限）。
       type: FileType.image,

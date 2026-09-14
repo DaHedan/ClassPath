@@ -94,7 +94,7 @@ class _ScheduleExportPageState extends State<ScheduleExportPage> {
 
   Future<void> _saveFile() async {
     final bytes = Uint8List.fromList(utf8.encode(_json));
-    final path = await FilePicker.saveFile(
+    final path = await FilePicker.platform.saveFile(
       dialogTitle: '保存课程表',
       fileName: _fileName,
       type: FileType.custom,
@@ -289,7 +289,7 @@ class _ScheduleExportPageState extends State<ScheduleExportPage> {
   Future<void> _saveImage() async {
     final bytes = await _renderShareCardPng();
     if (bytes == null) return;
-    final path = await FilePicker.saveFile(
+    final path = await FilePicker.platform.saveFile(
       dialogTitle: '保存二维码图片',
       fileName: '${widget.schedule.name}_课表二维码.png',
       type: FileType.custom,

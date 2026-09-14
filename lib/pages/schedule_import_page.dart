@@ -35,7 +35,7 @@ class _ScheduleImportPageState extends State<ScheduleImportPage> {
 
   /// 从 .json 文件导入。
   Future<void> _pickJsonFile() async {
-    final result = await FilePicker.pickFiles(
+    final result = await FilePicker.platform.pickFiles(
       dialogTitle: '选择课程表文件',
       type: FileType.custom,
       allowedExtensions: ['json'],
@@ -55,7 +55,7 @@ class _ScheduleImportPageState extends State<ScheduleImportPage> {
 
   /// 从包含二维码的图片导入（桌面端解码图片）。
   Future<void> _pickQrImage() async {
-    final result = await FilePicker.pickFiles(
+    final result = await FilePicker.platform.pickFiles(
       dialogTitle: '选择包含课程表二维码的图片',
       type: FileType.custom,
       allowedExtensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'],

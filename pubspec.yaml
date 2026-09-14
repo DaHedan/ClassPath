@@ -23,8 +23,7 @@ dependencies:
   # 二维码生成矩阵（schedule_share_service 离屏绘制用）
   qr: ^3.0.2
   # 本地 vendor 版：修复 AGP 9 + android.builtInKotlin=false 下 Kotlin 类不编译的问题
-  file_picker:
-    path: third_party/file_picker
+  file_picker: ^8.0.0
   zxing2: ^0.2.4
   image: ^4.9.1
   mobile_scanner: ^7.4.0
