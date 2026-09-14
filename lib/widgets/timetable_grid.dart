@@ -348,28 +348,22 @@ class _TimetableGridState extends State<TimetableGrid>
 
     // 统计每个「星期x + 第y节」格子里的课程（挂在节次段的起始节下）。
     final cellMap = <String, List<_CellEntry>>{};
-    // 单周模式下调休补班：补班日额外显示当前周 source weekday 的课程。
-    // targetWeekdaySrcWeekday: 补班日所在星期几 → source 星期几
-    final targetWeekdaySrcWeekday = <int, int>{};
+    // 单周模式下调休补班：补班日照搬其 source（指定日期）那天的课，
+    // 因此需按指定日期匹配，而不能只按星期几匹配。
+    // rescheduleSources: 补班日所在星期几 → source 日期。
+    final rescheduleSources = <int, DateTime>{};
     if (!widget.semesterMode) {
       for (final r in widget.schedule.reschedules) {
         final target = DateTime.parse(r.date);
         if (ScheduleMath.weekNumberOf(widget.schedule, target) != widget.week) {
           continue;
         }
-        final srcDt = DateTime.parse(r.source);
-        targetWeekdaySrcWeekday[target.weekday] = srcDt.weekday;
+        rescheduleSources[target.weekday] = DateTime.parse(r.source);
       }
     }
     for (final course in widget.courses) {
       if (course.scheduleId != widget.schedule.id) continue;
       for (final ct in course.classTimes) {
-        // 每组上课时间独立控制上课周：null 表示全部周，否则仅所选周显示。
-        if (!widget.semesterMode &&
-            ct.weeks != null &&
-            !ct.weeks!.contains(widget.week)) {
-          continue;
-        }
         if (!widget.semesterMode) {
           final date = ScheduleMath.dateOf(
             widget.week,
@@ -378,20 +372,24 @@ class _TimetableGridState extends State<TimetableGrid>
           );
           final dateKey = ScheduleMath.dateStr(date);
           final isRest = HolidayService.isRest(widget.holidays, dateKey);
+          // 每组上课时间独立控制上课周：null 表示全部周，否则仅所选周显示。
+          final inThisWeek = ct.weeks == null || ct.weeks!.contains(widget.week);
 
           // 非休息日：正常放在自己的 weekday 列。
-          if (!isRest) {
+          if (inThisWeek && !isRest) {
             final key = '${ct.weekday}_${ct.startPeriod}';
             cellMap.putIfAbsent(key, () => []).add(_CellEntry(course, ct));
           }
 
-          // 调休：若该 weekday 是某条调休的 source weekday，
-          // 额外在补班日（target weekday）也放一份（不受休息日影响）。
-          for (final entry in targetWeekdaySrcWeekday.entries) {
-            if (entry.value == ct.weekday) {
-              final resKey = '${entry.key}_${ct.startPeriod}';
-              cellMap.putIfAbsent(resKey, () => []).add(_CellEntry(course, ct));
-            }
+          // 调休：补班日显示 source 指定日期那天的课——
+          // 需与 source 的星期几相同，且在 source 所在周有课。
+          for (final entry in rescheduleSources.entries) {
+            final srcDt = entry.value;
+            if (ct.weekday != srcDt.weekday) continue;
+            final srcWeek = ScheduleMath.weekNumberOf(widget.schedule, srcDt);
+            if (ct.weeks != null && !ct.weeks!.contains(srcWeek)) continue;
+            final resKey = '${entry.key}_${ct.startPeriod}';
+            cellMap.putIfAbsent(resKey, () => []).add(_CellEntry(course, ct));
           }
 
           continue;
