@@ -320,24 +320,25 @@ class _CourseFormPageState extends State<CourseFormPage> {
   }
 
   Future<void> _addClassTime() async {
-    final result = await showDialog<ClassTime>(
+    final result = await showDialog<List<ClassTime>>(
       context: context,
       builder: (_) => _ClassTimeDialog(
         schedule: schedule,
         defaultBuildingIndex: _buildingIndex,
       ),
     );
-    if (result != null) {
+    if (result != null && result.isNotEmpty) {
       // 上课周在对话框内设置：新建默认未选择，需手动勾选。
+      // 节次可多选，一次可添加多段上课时间。
       setState(() {
-        _classTimes.add(result);
+        _classTimes.addAll(result);
         _dirty = true;
       });
     }
   }
 
   Future<void> _editClassTime(int index) async {
-    final result = await showDialog<ClassTime>(
+    final result = await showDialog<List<ClassTime>>(
       context: context,
       builder: (_) => _ClassTimeDialog(
         schedule: schedule,
@@ -345,9 +346,12 @@ class _CourseFormPageState extends State<CourseFormPage> {
         defaultBuildingIndex: _buildingIndex,
       ),
     );
-    if (result != null) {
+    if (result != null && result.isNotEmpty) {
       setState(() {
-        _classTimes[index] = result;
+        // 编辑时可改为多选，原地替换并补入新增的节次段。
+        _classTimes
+          ..removeAt(index)
+          ..insertAll(index, result);
         _dirty = true;
       });
     }
@@ -829,26 +833,29 @@ class _ClassTimeDialog extends StatefulWidget {
 
 class _ClassTimeDialogState extends State<_ClassTimeDialog> {
   late int _weekday;
-  late int _startPeriod;
-  late int _endPeriod;
   late TimeOfDay _start;
   late TimeOfDay _end;
   late int _buildingIndex;
   bool _customLocation = false; // 为本节单独设置地点
   final _roomCtrl = TextEditingController();
 
+  /// 已选节次段（可多选），key 为 "起节-止节"。
+  /// 保存时每个节次段各生成一条上课时间。
+  late Set<String> _selectedRanges;
+
   /// 上课周（null = 全部周）。
   List<int>? _weeks;
 
   static const _weekdayNames = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+
+  /// 节次段的唯一标识。
+  String _rangeKey(int startPeriod, int endPeriod) => '$startPeriod-$endPeriod';
 
   @override
   void initState() {
     super.initState();
     final i = widget.initial;
     _weekday = i?.weekday ?? 1;
-    _startPeriod = i?.startPeriod ?? 1;
-    _endPeriod = i?.endPeriod ?? 1;
     _start = _parseTime(i?.start ?? '08:00');
     _end = _parseTime(i?.end ?? '09:40');
     // 上课周：编辑时保留原设置；新建默认未选择，由用户手动勾选。
@@ -866,8 +873,45 @@ class _ClassTimeDialogState extends State<_ClassTimeDialog> {
     }
     _roomCtrl.text = loc?.room ?? '';
     _customLocation = loc != null && !loc.isEmpty;
-    // 新建的上课时间：按所选楼宇与节次段带出时间段。
-    if (i == null) _applyBuildingRange(notify: false);
+    // 编辑时预选原有的节次：若该段由多段节次合并而来，拆回对应的各段，
+    // 使界面与新建时一致；拆不开（楼宇配置已变更等）则保留整段。
+    // 新建时留空，由 _applyBuildingRange 选中首段。
+    if (i == null) {
+      _selectedRanges = <String>{};
+      _applyBuildingRange(notify: false);
+    } else {
+      final parts = _decompose(i.startPeriod, i.endPeriod);
+      _selectedRanges = parts.isEmpty
+          ? {_rangeKey(i.startPeriod, i.endPeriod)}
+          : {
+              for (final r in parts)
+                _rangeKey(r.startPeriod, r.endPeriod),
+            };
+    }
+  }
+
+  /// 把一段节次 [startPeriod]..[endPeriod] 拆成楼宇配置里对应的若干节次段
+  /// （连续、无午/晚饭分隔，且能原样合并回同一段）；拆不开返回空。
+  List<PeriodTime> _decompose(int startPeriod, int endPeriod) {
+    final options = _periodOptions();
+    final parts = <PeriodTime>[];
+    var p = startPeriod;
+    while (p <= endPeriod) {
+      final idx = options.indexWhere((r) => r.startPeriod == p);
+      if (idx < 0) return const [];
+      final r = options[idx];
+      if (r.endPeriod > endPeriod) return const [];
+      parts.add(r);
+      p = r.endPeriod + 1;
+    }
+    // 必须能由 _mergeRuns 原样合并回同一段，否则原数据非标准形态。
+    final runs = _mergeRuns(parts);
+    if (runs.length == 1 &&
+        runs.first.first.startPeriod == startPeriod &&
+        runs.last.last.endPeriod == endPeriod) {
+      return parts;
+    }
+    return const [];
   }
 
   /// 该节节次段的来源楼宇：单独设置地点时用所选楼宇，否则用课程总体楼宇。
@@ -909,23 +953,59 @@ class _ClassTimeDialogState extends State<_ClassTimeDialog> {
     return ranges;
   }
 
-  /// 依据楼宇的时间段（所选节次段）自动填充上课/下课时间。
-  void _applyBuildingRange({bool notify = true}) {
-    final b = _sourceBuilding;
-    if (b == null || b.periodTimes.isEmpty) return;
-    PeriodTime? target;
-    for (final t in b.periodTimes) {
-      if (_startPeriod >= t.startPeriod && _startPeriod <= t.endPeriod) {
-        target = t;
-        break;
+  /// 节次段选项：楼宇配置的时间段 + 未被覆盖的节次补单节；
+  /// 编辑时若原节次段拆不开、需保留整段（如楼宇配置已变更），补一条以免丢失。
+  List<PeriodTime> _options() {
+    final options = _periodOptions();
+    final i = widget.initial;
+    if (i != null) {
+      final key = _rangeKey(i.startPeriod, i.endPeriod);
+      final covered =
+          options.any((r) => _rangeKey(r.startPeriod, r.endPeriod) == key);
+      if (!covered && _selectedRanges.contains(key)) {
+        options.add(PeriodTime(
+          startPeriod: i.startPeriod,
+          endPeriod: i.endPeriod,
+          start: i.start,
+          end: i.end,
+        ));
+        options.sort((a, b) => a.startPeriod.compareTo(b.startPeriod));
       }
     }
-    target ??= b.periodTimes.first;
+    return options;
+  }
+
+  /// 当前选中的节次段（按节次排序）。
+  List<PeriodTime> _selectedOptions() => [
+        for (final r in _options())
+          if (_selectedRanges.contains(_rangeKey(r.startPeriod, r.endPeriod)))
+            r,
+      ];
+
+  /// 选择变化后：若合并结果恰为一段，就把上课/下课时间同步为该段
+  /// 拼接后的首尾时间，以便像单选一样查看并手动编辑。
+  void _syncTimes() {
+    final runs = _mergeRuns(_selectedOptions());
+    if (runs.length != 1) return;
+    _start = _parseTime(runs.first.first.start);
+    _end = _parseTime(runs.last.last.end);
+  }
+
+  /// 依据楼宇的时间段约束当前选择：剔除新楼宇中不存在的节次段，
+  /// 为空时默认选中首段，并同步单选时的时间。
+  void _applyBuildingRange({bool notify = true}) {
     void apply() {
-      _startPeriod = target!.startPeriod;
-      _endPeriod = target!.endPeriod;
-      _start = _parseTime(target!.start);
-      _end = _parseTime(target!.end);
+      final options = _options();
+      if (options.isEmpty) return;
+      final valid = {
+        for (final r in options) _rangeKey(r.startPeriod, r.endPeriod),
+      };
+      _selectedRanges = _selectedRanges.where(valid.contains).toSet();
+      if (_selectedRanges.isEmpty) {
+        final first = options.first;
+        _selectedRanges.add(_rangeKey(first.startPeriod, first.endPeriod));
+      }
+      _syncTimes();
     }
 
     if (notify) {
@@ -935,12 +1015,16 @@ class _ClassTimeDialogState extends State<_ClassTimeDialog> {
     }
   }
 
-  void _selectRange(PeriodTime r) {
+  /// 勾选 / 取消某个节次段。
+  void _toggleRange(PeriodTime r, bool selected) {
     setState(() {
-      _startPeriod = r.startPeriod;
-      _endPeriod = r.endPeriod;
-      _start = _parseTime(r.start);
-      _end = _parseTime(r.end);
+      final key = _rangeKey(r.startPeriod, r.endPeriod);
+      if (selected) {
+        _selectedRanges.add(key);
+      } else {
+        _selectedRanges.remove(key);
+      }
+      _syncTimes();
     });
   }
 
@@ -985,7 +1069,15 @@ class _ClassTimeDialogState extends State<_ClassTimeDialog> {
   }
 
   void _save() {
-    if (_min(_end) <= _min(_start)) {
+    // 连续且其间无午/晚饭分隔的节次段合并为一条上课时间，其余各自成条。
+    final runs = _mergeRuns(_selectedOptions());
+    if (runs.isEmpty) {
+      _snack('请选择节次');
+      return;
+    }
+    // 合并结果恰为一段时采用手动微调的时间。
+    final useManualTime = runs.length == 1;
+    if (useManualTime && _min(_end) <= _min(_start)) {
       _snack('下课时间必须晚于上课时间');
       return;
     }
@@ -995,23 +1087,55 @@ class _ClassTimeDialogState extends State<_ClassTimeDialog> {
     }
     final room = _roomCtrl.text.trim();
     final building = _sourceBuilding?.name ?? '';
-    CourseLocation? loc;
     // 仅当开启「为本节单独设置地点」时保存本节地点。
-    if (_customLocation && (building.isNotEmpty || room.isNotEmpty)) {
-      loc = CourseLocation(building: building, room: room);
+    CourseLocation? buildLocation() =>
+        _customLocation && (building.isNotEmpty || room.isNotEmpty)
+            ? CourseLocation(building: building, room: room)
+            : null;
+    Navigator.pop(context, <ClassTime>[
+      for (final run in runs)
+        ClassTime(
+          weekday: _weekday,
+          startPeriod: run.first.startPeriod,
+          endPeriod: run.last.endPeriod,
+          start: useManualTime ? _fmt(_start) : run.first.start,
+          end: useManualTime ? _fmt(_end) : run.last.end,
+          location: buildLocation(),
+          weeks: _weeks == null ? null : List<int>.of(_weeks!),
+        ),
+    ]);
+  }
+
+  /// 把（已按节次排序的）节次段合并成若干「连续块」：
+  /// 相邻两段首尾相接（前段止节 + 1 = 后段起节）且其间无午/晚饭分隔时合并，
+  /// 否则断开。合并后的块起止时间取首段的上课时间与末段的下课时间。
+  List<List<PeriodTime>> _mergeRuns(List<PeriodTime> selected) {
+    final runs = <List<PeriodTime>>[];
+    for (final r in selected) {
+      if (runs.isNotEmpty) {
+        final last = runs.last.last;
+        if (r.startPeriod == last.endPeriod + 1 &&
+            !_mealBetween(last.endPeriod, r.endPeriod)) {
+          runs.last.add(r);
+          continue;
+        }
+      }
+      runs.add([r]);
     }
-    Navigator.pop(
-      context,
-      ClassTime(
-        weekday: _weekday,
-        startPeriod: _startPeriod,
-        endPeriod: _endPeriod,
-        start: _fmt(_start),
-        end: _fmt(_end),
-        location: loc,
-        weeks: _weeks,
-      ),
-    );
+    return runs;
+  }
+
+  /// [fromPeriod, toPeriod) 之间是否有午/晚饭分隔。
+  /// 第 X 节后的餐点位于第 X 与第 X+1 节之间。
+  bool _mealBetween(int fromPeriod, int toPeriod) {
+    final s = widget.schedule;
+    for (var p = fromPeriod; p < toPeriod; p++) {
+      if ((s.lunch.enabled && s.lunch.afterPeriod == p) ||
+          (s.dinner.enabled && s.dinner.afterPeriod == p)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   Future<void> _pickWeeks() async {
@@ -1046,10 +1170,7 @@ class _ClassTimeDialogState extends State<_ClassTimeDialog> {
         ],
       );
     }
-    final ranges = _periodOptions();
-    var rangeIndex = ranges.indexWhere(
-        (r) => r.startPeriod == _startPeriod && r.endPeriod == _endPeriod);
-    if (rangeIndex < 0) rangeIndex = 0;
+    final options = _options();
     return AlertDialog(
       title: const Text('上课时间'),
       content: SizedBox(
@@ -1083,8 +1204,9 @@ class _ClassTimeDialogState extends State<_ClassTimeDialog> {
                           _buildingIndex = buildings.isNotEmpty ? 0 : -1;
                         }
                       }
-                      _applyBuildingRange();
                     }
+                    // 楼宇来源变化后，按新楼宇的节次段时间重新校准选择。
+                    _applyBuildingRange(notify: false);
                   });
                 },
               ),
@@ -1123,49 +1245,63 @@ class _ClassTimeDialogState extends State<_ClassTimeDialog> {
                 onChanged: (v) => setState(() => _weekday = v ?? 1),
               ),
               const SizedBox(height: 12),
-              // 节次段：按所选楼宇的时间段提供，可多节（如第1-3节）。
-              DropdownButtonFormField<int>(
-                initialValue: rangeIndex,
-                decoration: const InputDecoration(labelText: '节次'),
-                items: [
-                  for (var i = 0; i < ranges.length; i++)
-                    DropdownMenuItem(
-                        value: i,
-                        child: Text(ranges[i].startPeriod == ranges[i].endPeriod
-                            ? '第${ranges[i].startPeriod}节'
-                            : '第${ranges[i].startPeriod}-${ranges[i].endPeriod}节')),
-                ],
-                onChanged: (v) {
-                  if (v != null) _selectRange(ranges[v]);
-                },
+              // 节次段：按所选楼宇的时间段提供，可多选（如同时选第1-2节、第5-6节）。
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '节次',
+                  style: TextStyle(fontSize: 12, color: theme.colorScheme.outline),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final r in options)
+                      FilterChip(
+                        label: Text(
+                          '${r.label}  ${r.start}-${r.end}',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        selected: _selectedRanges
+                            .contains(_rangeKey(r.startPeriod, r.endPeriod)),
+                        onSelected: (v) => _toggleRange(r, v),
+                      ),
+                  ],
+                ),
               ),
               const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('上课时间'),
-                      subtitle: Text(_fmt(_start),
-                          style: const TextStyle(fontSize: 16)),
-                      onTap: () => _pickTime(true),
+              // 合并结果恰为一段时，时间与单选一样可查看、手动编辑。
+              if (_mergeRuns(_selectedOptions()).length == 1)
+                Row(
+                  children: [
+                    Expanded(
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('上课时间'),
+                        subtitle: Text(_fmt(_start),
+                            style: const TextStyle(fontSize: 16)),
+                        onTap: () => _pickTime(true),
+                      ),
                     ),
-                  ),
-                  const Padding(
-                    padding: EdgeInsets.only(bottom: 12),
-                    child: Text('-'),
-                  ),
-                  Expanded(
-                    child: ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('下课时间'),
-                      subtitle: Text(_fmt(_end),
-                          style: const TextStyle(fontSize: 16)),
-                      onTap: () => _pickTime(false),
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 12),
+                      child: Text('-'),
                     ),
-                  ),
-                ],
-              ),
+                    Expanded(
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('下课时间'),
+                        subtitle: Text(_fmt(_end),
+                            style: const TextStyle(fontSize: 16)),
+                        onTap: () => _pickTime(false),
+                      ),
+                    ),
+                  ],
+                ),
               const SizedBox(height: 8),
               // 上课周：null 表示全部周。
               ListTile(
