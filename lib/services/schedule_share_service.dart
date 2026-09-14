@@ -67,6 +67,9 @@ class ShareOptions {
   /// 备注。
   final bool note;
 
+  /// 不参与分享的课程（按 [Course.uid]）。
+  final Set<String> excludedCourses;
+
   const ShareOptions({
     this.meals = true,
     this.reschedules = true,
@@ -75,6 +78,7 @@ class ShareOptions {
     this.remind = false,
     this.exam = true,
     this.note = false,
+    this.excludedCourses = const <String>{},
   });
 
   ShareOptions copyWith({
@@ -85,6 +89,7 @@ class ShareOptions {
     bool? remind,
     bool? exam,
     bool? note,
+    Set<String>? excludedCourses,
   }) =>
       ShareOptions(
         meals: meals ?? this.meals,
@@ -94,6 +99,7 @@ class ShareOptions {
         remind: remind ?? this.remind,
         exam: exam ?? this.exam,
         note: note ?? this.note,
+        excludedCourses: excludedCourses ?? this.excludedCourses,
       );
 }
 
@@ -128,7 +134,9 @@ class ScheduleShareService {
     );
     final cs = options.courses
         ? [
-            for (final c in courses) _filterCourse(c, options),
+            for (final c in courses)
+              if (!options.excludedCourses.contains(c.uid))
+                _filterCourse(c, options),
           ]
         : <Course>[];
     return ScheduleSharePackage(schedule: s, courses: cs);

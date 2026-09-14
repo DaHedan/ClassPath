@@ -79,7 +79,10 @@ class _ScheduleExportPageState extends State<ScheduleExportPage> {
     final result = await showDialog<ShareOptions>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => _ShareOptionsDialog(initial: _options),
+      builder: (_) => _ShareOptionsDialog(
+        initial: _options,
+        courses: widget.courses,
+      ),
     );
     if (result == null || !mounted) return;
     setState(() {
@@ -100,6 +103,8 @@ class _ScheduleExportPageState extends State<ScheduleExportPage> {
       if (_options.courses && _options.remind) '提前提醒',
       if (_options.courses && _options.exam) '考试信息',
       if (_options.courses && _options.note) '备注',
+      if (_options.courses && _options.excludedCourses.isNotEmpty)
+        '排除${_options.excludedCourses.length}门',
     ];
     return parts.isEmpty ? '仅课程表基本信息' : parts.join('、');
   }
@@ -550,13 +555,17 @@ class _ScheduleExportPageState extends State<ScheduleExportPage> {
       '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 }
 
-/// 分享内容选择弹窗：勾选随课程表一起分享的可选内容。
+/// 分享内容选择弹窗：勾选随课程表一起分享的可选内容，
+/// 并可排除指定的课程。
 ///
 /// 课程未勾选时，教师 / 提前提醒 / 考试信息 / 备注变灰不可选。
 class _ShareOptionsDialog extends StatefulWidget {
   final ShareOptions initial;
 
-  const _ShareOptionsDialog({required this.initial});
+  /// 当前课程表的全部课程，用于「排除课程」的选择。
+  final List<Course> courses;
+
+  const _ShareOptionsDialog({required this.initial, required this.courses});
 
   @override
   State<_ShareOptionsDialog> createState() => _ShareOptionsDialogState();
@@ -567,9 +576,38 @@ class _ShareOptionsDialogState extends State<_ShareOptionsDialog> {
 
   void _update(ShareOptions next) => setState(() => _options = next);
 
+  /// 选择要从分享中排除的课程。
+  Future<void> _pickExcludedCourses() async {
+    final result = await showDialog<Set<String>>(
+      context: context,
+      builder: (_) => _CourseExcludeDialog(
+        courses: widget.courses,
+        selected: _options.excludedCourses,
+      ),
+    );
+    if (result != null && mounted) {
+      _update(_options.copyWith(excludedCourses: result));
+    }
+  }
+
+  void _removeExcluded(String uid) {
+    _update(
+      _options.copyWith(
+        excludedCourses: {
+          for (final u in _options.excludedCourses)
+            if (u != uid) u,
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final hasCourses = _options.courses;
+    final excluded = [
+      for (final c in widget.courses)
+        if (_options.excludedCourses.contains(c.uid)) c,
+    ];
     return AlertDialog(
       title: const Text('分享内容'),
       content: SizedBox(
@@ -577,6 +615,7 @@ class _ShareOptionsDialogState extends State<_ShareOptionsDialog> {
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _tile('用餐时间', _options.meals,
                   (v) => _update(_options.copyWith(meals: v))),
@@ -592,6 +631,45 @@ class _ShareOptionsDialogState extends State<_ShareOptionsDialog> {
                   hasCourses ? (v) => _update(_options.copyWith(exam: v)) : null),
               _tile('备注', _options.note,
                   hasCourses ? (v) => _update(_options.copyWith(note: v)) : null),
+              const SizedBox(height: 4),
+              // 课程未勾选时，整块「排除课程」（含已排除课程的删除叉）都不可交互。
+              Opacity(
+                opacity: hasCourses ? 1 : 0.5,
+                child: IgnorePointer(
+                  ignoring: !hasCourses,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Text('排除课程：'),
+                          const Spacer(),
+                          TextButton.icon(
+                            onPressed: hasCourses ? _pickExcludedCourses : null,
+                            icon: const Icon(Icons.add, size: 18),
+                            label: const Text('添加'),
+                          ),
+                        ],
+                      ),
+                      if (excluded.isNotEmpty)
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            for (final c in excluded)
+                              InputChip(
+                                label: Text(c.name),
+                                labelStyle: const TextStyle(fontSize: 12),
+                                visualDensity: VisualDensity.compact,
+                                onDeleted: () => _removeExcluded(c.uid),
+                              ),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
+              ),
             ],
           ),
         ),
@@ -618,6 +696,68 @@ class _ShareOptionsDialogState extends State<_ShareOptionsDialog> {
       title: Text(label),
       value: value,
       onChanged: onChanged == null ? null : (v) => onChanged(v ?? false),
+    );
+  }
+}
+
+/// 排除课程选择弹窗：多选要从分享中排除的课程。
+class _CourseExcludeDialog extends StatefulWidget {
+  final List<Course> courses;
+  final Set<String> selected;
+
+  const _CourseExcludeDialog({required this.courses, required this.selected});
+
+  @override
+  State<_CourseExcludeDialog> createState() => _CourseExcludeDialogState();
+}
+
+class _CourseExcludeDialogState extends State<_CourseExcludeDialog> {
+  late final Set<String> _selected = {...widget.selected};
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('排除课程'),
+      content: SizedBox(
+        width: 320,
+        height: 360,
+        child: ListView(
+          children: [
+            for (final c in widget.courses)
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                controlAffinity: ListTileControlAffinity.leading,
+                title: Text(
+                  c.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: c.id.trim().isEmpty
+                    ? null
+                    : Text(c.id, style: const TextStyle(fontSize: 11)),
+                value: _selected.contains(c.uid),
+                onChanged: (v) => setState(() {
+                  if (v ?? false) {
+                    _selected.add(c.uid);
+                  } else {
+                    _selected.remove(c.uid);
+                  }
+                }),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _selected),
+          child: const Text('确定'),
+        ),
+      ],
     );
   }
 }
