@@ -390,26 +390,10 @@ class _HomePageState extends State<HomePage> {
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
       child: Row(
         children: [
-          SegmentedButton<TimetableMode>(
-            showSelectedIcon: false,
-            // 紧凑样式：压缩内边距与字号，缩小按钮占用。
-            style: SegmentedButton.styleFrom(
-              visualDensity: VisualDensity.compact,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              textStyle: const TextStyle(fontSize: 12),
-            ),
-            segments: const [
-              ButtonSegment(value: TimetableMode.day, label: Text('单日')),
-              ButtonSegment(value: TimetableMode.week, label: Text('单周')),
-              ButtonSegment(
-                value: TimetableMode.semester,
-                label: Text('本学期'),
-              ),
-            ],
-            selected: {mode},
-            onSelectionChanged: (v) =>
-                app.updateSettings(app.settings.copyWith(mode: v.first)),
+          _ModeToggle(
+            value: mode,
+            onChanged: (v) =>
+                app.updateSettings(app.settings.copyWith(mode: v)),
           ),
           if (mode != TimetableMode.semester) ...[
             const SizedBox(width: 8),
@@ -455,6 +439,143 @@ class _HomePageState extends State<HomePage> {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+/// 模式切换：单日 / 单周 / 本学期。
+///
+/// 不用 [SegmentedButton] 是因为它会把所有段拉成同一宽度（取最宽的那段），
+/// 「单日」「单周」两边就会空出很多；这里每段按自己的文字宽度排布，
+/// 选中高亮是一块在段之间滑动的小圆角块（各段宽度不等，所以位置实测得到）。
+class _ModeToggle extends StatefulWidget {
+  const _ModeToggle({required this.value, required this.onChanged});
+
+  final TimetableMode value;
+  final ValueChanged<TimetableMode> onChanged;
+
+  @override
+  State<_ModeToggle> createState() => _ModeToggleState();
+}
+
+class _ModeToggleState extends State<_ModeToggle> {
+  static const Map<TimetableMode, String> _labels = {
+    TimetableMode.day: '单日',
+    TimetableMode.week: '单周',
+    TimetableMode.semester: '本学期',
+  };
+  static const Duration _duration = Duration(milliseconds: 200);
+  static const BorderRadius _radius = BorderRadius.all(Radius.circular(14));
+
+  final GlobalKey _stackKey = GlobalKey();
+  final Map<TimetableMode, GlobalKey> _segmentKeys = {
+    for (final mode in _labels.keys) mode: GlobalKey(),
+  };
+
+  /// 选中块相对切换条的位置；首次布局完成前为空。
+  Rect? _indicator;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncIndicator());
+  }
+
+  @override
+  void didUpdateWidget(covariant _ModeToggle oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncIndicator());
+  }
+
+  void _syncIndicator() {
+    if (!mounted) return;
+    final stack = _stackKey.currentContext?.findRenderObject() as RenderBox?;
+    final segment =
+        _segmentKeys[widget.value]?.currentContext?.findRenderObject()
+            as RenderBox?;
+    if (stack == null || segment == null) return;
+    final rect = (segment.localToGlobal(Offset.zero, ancestor: stack)) &
+        segment.size;
+    if (_indicator == rect) return;
+    setState(() => _indicator = rect);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final indicator = _indicator;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: scheme.outline),
+      ),
+      // 选中块内缩一圈，不贴外框，避免和外框拼出被切断的直角。
+      child: Padding(
+        padding: const EdgeInsets.all(2),
+        child: Stack(
+          key: _stackKey,
+          children: [
+            if (indicator != null)
+              AnimatedPositioned(
+                duration: _duration,
+                curve: Curves.easeOutCubic,
+                left: indicator.left,
+                top: indicator.top,
+                width: indicator.width,
+                height: indicator.height,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: scheme.secondaryContainer,
+                    borderRadius: _radius,
+                  ),
+                ),
+              ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final mode in _labels.keys)
+                  _segment(scheme, mode, measured: indicator != null),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _segment(
+    ColorScheme scheme,
+    TimetableMode mode, {
+    required bool measured,
+  }) {
+    final selected = mode == widget.value;
+    return InkWell(
+      key: _segmentKeys[mode],
+      onTap: () => widget.onChanged(mode),
+      borderRadius: _radius,
+      child: DecoratedBox(
+        // 尚未测量出选中块位置时先由本段自己填色，避免首帧没有高亮。
+        decoration: BoxDecoration(
+          color: !measured && selected
+              ? scheme.secondaryContainer
+              : Colors.transparent,
+          borderRadius: _radius,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+          // 字重不随选中变化：否则切换时文字宽度跳变，整条会跟着抖一下。
+          child: AnimatedDefaultTextStyle(
+            duration: _duration,
+            curve: Curves.easeOut,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: selected ? scheme.onSecondaryContainer : scheme.onSurface,
+            ),
+            child: Text(_labels[mode]!),
+          ),
+        ),
       ),
     );
   }
