@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -5,6 +6,7 @@ import '../models/app_settings.dart';
 import '../models/course.dart';
 import '../models/schedule.dart';
 import '../services/schedule_math.dart';
+import '../services/timetable_ocr.dart';
 import '../state/app_state.dart';
 import '../widgets/timetable_grid.dart';
 import '../widgets/week_picker_dialog.dart';
@@ -14,6 +16,7 @@ import 'schedule_form_page.dart';
 import 'schedule_import_page.dart';
 import 'schedule_list_page.dart';
 import 'settings_page.dart';
+import 'timetable_image_import_page.dart';
 
 /// 主页：课程表网格。
 ///
@@ -174,10 +177,57 @@ class _HomePageState extends State<HomePage> {
     if (w != null && mounted) setState(() => _week = w);
   }
 
-  void _addCourse() {
+  Future<void> _addCourse() async {
     final app = context.read<AppState>();
     final s = app.activeSchedule;
     if (s == null) return;
+    // 手机端额外提供「从图片导入课程」。
+    if (TimetableOcr.supported) {
+      final choice = await showModalBottomSheet<String>(
+        context: context,
+        showDragHandle: true,
+        builder: (ctx) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.edit_outlined),
+                title: const Text('手动添加课程'),
+                onTap: () => Navigator.pop(ctx, 'manual'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.image_outlined),
+                title: const Text('从图片导入课程'),
+                onTap: () => Navigator.pop(ctx, 'image'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (!mounted || choice == null) return;
+      if (choice == 'image') {
+        // 直接在这里弹系统选图，选完才进结果页，不额外加一层中间页。
+        final picked = await FilePicker.platform.pickFiles(
+          dialogTitle: '选择课程表图片',
+          type: FileType.image,
+        );
+        final path = picked?.files.single.path;
+        if (!mounted || path == null) return;
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) =>
+                TimetableImageImportPage(schedule: s, imagePath: path),
+          ),
+        );
+        return;
+      }
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => CourseFormPage(schedule: s)),
+      );
+      return;
+    }
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => CourseFormPage(schedule: s)),

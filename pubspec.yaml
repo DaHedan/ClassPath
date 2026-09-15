@@ -31,6 +31,8 @@ dependencies:
   # 系统分享面板：手机端把课程表 json / 二维码图片发送到其它应用。
   # 12.x：兼容 vendor 版 file_picker 的 win32 ^5.x 约束（13.x 需要 win32 ^6）。
   share_plus: ^12.0.2
+  # 图片导入课程：ML Kit 中文文字识别（仅 Android / iOS，离线）。
+  google_mlkit_text_recognition: ^0.17.1
 
 dev_dependencies:
   flutter_test:
