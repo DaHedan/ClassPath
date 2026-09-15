@@ -908,6 +908,9 @@ class _ClassTimeDialogState extends State<_ClassTimeDialog> {
   /// 上课周（null = 全部周）。
   List<int>? _weeks;
 
+  /// 校验提示。对话框内部显示，不能用 SnackBar——它会被对话框自己挡住。
+  String? _error;
+
   static const _weekdayNames = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 
   /// 节次段的唯一标识。
@@ -937,10 +940,9 @@ class _ClassTimeDialogState extends State<_ClassTimeDialog> {
     _customLocation = loc != null && !loc.isEmpty;
     // 编辑时预选原有的节次：若该段由多段节次合并而来，拆回对应的各段，
     // 使界面与新建时一致；拆不开（楼宇配置已变更等）则保留整段。
-    // 新建时留空，由 _applyBuildingRange 选中首段。
+    // 新建时不预选任何节次，由用户自己勾选（确定时会校验非空）。
     if (i == null) {
       _selectedRanges = <String>{};
-      _applyBuildingRange(notify: false);
     } else {
       final parts = _decompose(i.startPeriod, i.endPeriod);
       _selectedRanges = parts.isEmpty
@@ -1053,8 +1055,8 @@ class _ClassTimeDialogState extends State<_ClassTimeDialog> {
     _end = _parseTime(runs.last.last.end);
   }
 
-  /// 依据楼宇的时间段约束当前选择：剔除新楼宇中不存在的节次段，
-  /// 为空时默认选中首段，并同步单选时的时间。
+  /// 依据楼宇的时间段约束当前选择：剔除新楼宇中不存在的节次段。
+  /// 不预选任何节次，交给用户自己勾选。
   void _applyBuildingRange({bool notify = true}) {
     void apply() {
       final options = _options();
@@ -1063,10 +1065,6 @@ class _ClassTimeDialogState extends State<_ClassTimeDialog> {
         for (final r in options) _rangeKey(r.startPeriod, r.endPeriod),
       };
       _selectedRanges = _selectedRanges.where(valid.contains).toSet();
-      if (_selectedRanges.isEmpty) {
-        final first = options.first;
-        _selectedRanges.add(_rangeKey(first.startPeriod, first.endPeriod));
-      }
       _syncTimes();
     }
 
@@ -1086,6 +1084,7 @@ class _ClassTimeDialogState extends State<_ClassTimeDialog> {
       } else {
         _selectedRanges.remove(key);
       }
+      _error = null;
       _syncTimes();
     });
   }
@@ -1109,11 +1108,6 @@ class _ClassTimeDialogState extends State<_ClassTimeDialog> {
 
   int _min(TimeOfDay t) => t.hour * 60 + t.minute;
 
-  void _snack(String msg) =>
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(msg)));
-
   Future<void> _pickTime(bool isStart) async {
     final t = await showClassPathTimePicker(
       context: context,
@@ -1126,6 +1120,7 @@ class _ClassTimeDialogState extends State<_ClassTimeDialog> {
         } else {
           _end = t;
         }
+        _error = null;
       });
     }
   }
@@ -1134,17 +1129,17 @@ class _ClassTimeDialogState extends State<_ClassTimeDialog> {
     // 连续且其间无午/晚饭分隔的节次段合并为一条上课时间，其余各自成条。
     final runs = _mergeRuns(_selectedOptions());
     if (runs.isEmpty) {
-      _snack('请选择节次');
+      setState(() => _error = '请选择节次');
       return;
     }
     // 合并结果恰为一段时采用手动微调的时间。
     final useManualTime = runs.length == 1;
     if (useManualTime && _min(_end) <= _min(_start)) {
-      _snack('下课时间必须晚于上课时间');
+      setState(() => _error = '下课时间必须晚于上课时间');
       return;
     }
     if (_weeks == null || _weeks!.isEmpty) {
-      _snack('请选择上课周');
+      setState(() => _error = '请选择上课周');
       return;
     }
     final room = _roomCtrl.text.trim();
@@ -1214,6 +1209,7 @@ class _ClassTimeDialogState extends State<_ClassTimeDialog> {
       setState(() {
         // 选满全部周时归一化为 null（全部周），避免冗余数据。
         _weeks = result.length >= widget.schedule.totalWeeks ? null : result;
+        _error = null;
       });
     }
   }
@@ -1237,10 +1233,14 @@ class _ClassTimeDialogState extends State<_ClassTimeDialog> {
       title: const Text('上课时间'),
       content: SizedBox(
         width: 340,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
               // 为本节单独设置地点（开关）
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
@@ -1387,8 +1387,25 @@ class _ClassTimeDialogState extends State<_ClassTimeDialog> {
                 '节次段按楼宇时间段自动带出时间：未单独设置地点时用总体楼宇，可再手动微调',
                 style: TextStyle(fontSize: 11, color: theme.colorScheme.outline),
               ),
+                  ],
+                ),
+              ),
+            ),
+            // 校验提示固定在按钮上方，不会被内容滚动藏起来。
+            if (_error != null) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  _error!,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: theme.colorScheme.error,
+                  ),
+                ),
+              ),
             ],
-          ),
+          ],
         ),
       ),
       actions: [
