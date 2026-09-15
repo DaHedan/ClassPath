@@ -41,6 +41,43 @@ class ScheduleSharePackage {
 /// 压缩载荷的前缀，用于解码时区分「原始 JSON」与「gzip 压缩的数据」。
 const String compressedMagic = 'classpath:gz:';
 
+/// 楼宇配置分享包：把「学校楼宇」（名称 + 各楼节次时间段）单独导出/导入，
+/// 便于同一学校的不同课程表之间复用，或分享给同学。
+class BuildingsSharePackage {
+  /// 文件类型标识（与课程表分享包区分）。
+  static const String typeName = 'classpath_buildings';
+
+  final List<Building> buildings;
+
+  BuildingsSharePackage(this.buildings);
+
+  Map<String, dynamic> toJson() => {
+    'type': typeName,
+    'version': 1,
+    'buildings': buildings.map((b) => b.toJson()).toList(),
+  };
+
+  factory BuildingsSharePackage.fromJson(Map<String, dynamic> json) =>
+      BuildingsSharePackage(
+        (json['buildings'] as List? ?? [])
+            .map((e) => Building.fromJson((e as Map).cast<String, dynamic>()))
+            .toList(),
+      );
+
+  /// 从任意课途文件里取出楼宇：既接受「仅楼宇」文件，也接受完整的
+  /// 课程表分享包（取其中的楼宇）。两种都不是则抛 [FormatException]。
+  static List<Building> parseBuildings(Map<String, dynamic> json) {
+    switch (json['type']) {
+      case BuildingsSharePackage.typeName:
+        return BuildingsSharePackage.fromJson(json).buildings;
+      case 'classpath_schedule':
+        return ScheduleSharePackage.fromJson(json).schedule.buildings;
+      default:
+        throw const FormatException('不是课途的楼宇或课程表文件');
+    }
+  }
+}
+
 /// 分享内容选项：控制哪些可选内容随课程表一起分享。
 ///
 /// 未列出的内容（课程表名称、周数、第一周周一、节次时间、上课时间与地点、
@@ -153,17 +190,29 @@ class ScheduleShareService {
 
   /// 编码为紧凑 JSON 字符串（用于导出文件）。
   static String encode(Schedule schedule, List<Course> courses) =>
-      jsonEncode(ScheduleSharePackage(schedule: schedule, courses: courses));
+      encodeJson(ScheduleSharePackage(schedule: schedule, courses: courses).toJson());
+
+  /// 编码任意课途 JSON（文件导出用）。
+  static String encodeJson(Map<String, dynamic> json) => jsonEncode(json);
+
+  /// 解析任意课途 JSON 文本（文件导入用），失败返回 null。
+  static Map<String, dynamic>? decodeJson(String text) {
+    try {
+      final obj = jsonDecode(text);
+      return obj is Map ? obj.cast<String, dynamic>() : null;
+    } catch (_) {
+      return null;
+    }
+  }
 
   /// 解析分享 JSON（文件导入），失败返回 null。
   static ScheduleSharePackage? decode(String text) {
+    final map = decodeJson(text);
+    if (map == null) return null;
+    if (map['type'] != 'classpath_schedule' || map['schedule'] is! Map) {
+      return null;
+    }
     try {
-      final obj = jsonDecode(text);
-      if (obj is! Map) return null;
-      final map = obj.cast<String, dynamic>();
-      if (map['type'] != 'classpath_schedule' || map['schedule'] is! Map) {
-        return null;
-      }
       return ScheduleSharePackage.fromJson(map);
     } catch (_) {
       return null;
@@ -176,8 +225,12 @@ class ScheduleShareService {
 
   /// 生成二维码内容：紧凑 JSON 与 gzip 压缩后 base64 取较短者，
   /// 尽量降低二维码版本密度、提高静态识别成功率；超出容量返回 null。
-  static String? qrPayload(Schedule schedule, List<Course> courses) {
-    final compact = jsonEncode(_compact(schedule, courses));
+  static String? qrPayload(Schedule schedule, List<Course> courses) =>
+      qrPayloadOf(_compact(schedule, courses));
+
+  /// 生成任意课途 JSON 的二维码内容（规则同上：压缩与原文取短者）。
+  static String? qrPayloadOf(Map<String, dynamic> json) {
+    final compact = jsonEncode(json);
     final rawBytes = utf8.encode(compact);
     final compressed =
         '$compressedMagic${base64Encode(GZipEncoder().encodeBytes(Uint8List.fromList(rawBytes), level: 9))}';
@@ -185,6 +238,22 @@ class ScheduleShareService {
       return compressed.length <= _qrMaxBytes ? compressed : null;
     }
     return rawBytes.length <= _qrMaxBytes ? compact : null;
+  }
+
+  /// 把二维码内容还原为 JSON（自动处理 gzip 压缩），失败返回 null。
+  static Map<String, dynamic>? decodePayloadToJson(String payload) {
+    String text;
+    if (payload.startsWith(compressedMagic)) {
+      try {
+        final bytes = base64Decode(payload.substring(compressedMagic.length));
+        text = utf8.decode(GZipDecoder().decodeBytes(bytes));
+      } catch (_) {
+        return null;
+      }
+    } else {
+      text = payload;
+    }
+    return decodeJson(text);
   }
 
   /// 二维码专用紧凑格式（版本号 2），键名短、结构扁平。
@@ -253,28 +322,17 @@ class ScheduleShareService {
   /// 解析二维码内容：可能是紧凑格式（t:2）、旧版完整 JSON
   /// （type: classpath_schedule）或 gzip 压缩的数据，失败返回 null。
   static ScheduleSharePackage? decodeQrPayload(String payload) {
-    String text;
-    if (payload.startsWith(compressedMagic)) {
+    final obj = decodePayloadToJson(payload);
+    if (obj == null) return null;
+    if (obj['type'] == 'classpath_schedule') {
+      return decode(jsonEncode(obj)); // 旧版完整 JSON
+    }
+    if (obj['t'] == 2) {
       try {
-        final bytes = base64Decode(payload.substring(compressedMagic.length));
-        text = utf8.decode(GZipDecoder().decodeBytes(bytes));
+        return _decompact(obj);
       } catch (_) {
         return null;
       }
-    } else {
-      text = payload;
-    }
-    try {
-      final obj = jsonDecode(text);
-      if (obj is! Map) return null;
-      if (obj['type'] == 'classpath_schedule') {
-        return decode(text); // 旧版完整 JSON
-      }
-      if (obj['t'] == 2) {
-        return _decompact(obj.cast<String, dynamic>());
-      }
-    } catch (_) {
-      return null;
     }
     return null;
   }

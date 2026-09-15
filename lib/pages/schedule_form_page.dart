@@ -5,6 +5,7 @@ import '../models/schedule.dart';
 import '../services/schedule_math.dart';
 import '../state/app_state.dart';
 import 'building_edit_page.dart';
+import 'buildings_share_page.dart';
 
 /// 课程表表单页：名称、总周数、第一周周一日期、一日总节数、
 /// 学校楼宇（至少一个，可复制时间段/楼宇）、用餐时间。
@@ -321,6 +322,23 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
                 onPressed: _addBuilding,
                 icon: const Icon(Icons.add, size: 18),
                 label: const Text('添加楼宇'),
+              ),
+              PopupMenuButton<String>(
+                tooltip: '导入 / 导出楼宇',
+                icon: const Icon(Icons.more_vert, size: 20),
+                onSelected: (v) =>
+                    v == 'export' ? _exportBuildings() : _importBuildings(),
+                itemBuilder: (ctx) => [
+                  if (_buildings.isNotEmpty)
+                    const PopupMenuItem(
+                      value: 'export',
+                      child: Text('导出楼宇配置'),
+                    ),
+                  const PopupMenuItem(
+                    value: 'import',
+                    child: Text('导入楼宇配置'),
+                  ),
+                ],
               ),
             ],
           ),
@@ -694,6 +712,85 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
       _buildings = schedule.buildings.map((b) => b.copy()).toList();
       _dirty = true;
     });
+  }
+
+  /// 打开分享页导出楼宇：二维码与数据文件两种方案。
+  Future<void> _exportBuildings() async {
+    if (_buildings.isEmpty) {
+      _snack('还没有楼宇可导出');
+      return;
+    }
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => BuildingsSharePage(
+          buildings: _buildings.map((b) => b.copy()).toList(),
+          title: _nameCtrl.text.trim(),
+        ),
+      ),
+    );
+  }
+
+  /// 打开分享页导入楼宇：扫码 / 识别图片 / 选择文件任选一种，
+  /// 拿到楼宇后再让用户决定「替换」还是「追加」。
+  Future<void> _importBuildings() async {
+    final imported = await Navigator.push<List<Building>>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const BuildingsSharePage(importMode: true),
+      ),
+    );
+    if (imported == null || imported.isEmpty || !mounted) return;
+    var mode = 'replace';
+    if (_buildings.isNotEmpty) {
+      final picked = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('导入楼宇'),
+          content: Text(
+            '导入内容有 ${imported.length} 栋楼宇，当前已有 ${_buildings.length} 栋。',
+            style: const TextStyle(fontSize: 14, height: 1.6),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, 'append'),
+                child: const Text('追加')),
+            FilledButton(
+                onPressed: () => Navigator.pop(ctx, 'replace'),
+                child: const Text('替换')),
+          ],
+        ),
+      );
+      if (picked == null || !mounted) return;
+      mode = picked;
+    }
+    var added = 0;
+    var skipped = 0;
+    setState(() {
+      if (mode == 'replace') {
+        _buildings = imported.map((b) => b.copy()).toList();
+        added = imported.length;
+      } else {
+        // 追加：同名的跳过，避免出现两栋「第一教学楼」。
+        final names = {for (final b in _buildings) b.name};
+        for (final b in imported) {
+          if (names.add(b.name)) {
+            _buildings.add(b.copy());
+            added++;
+          } else {
+            skipped++;
+          }
+        }
+      }
+      _dirty = true;
+    });
+    _snack(
+      skipped == 0
+          ? '已导入 $added 栋楼宇'
+          : '已导入 $added 栋楼宇（跳过 $skipped 栋重名）',
+    );
   }
 
   Future<Building?> _pickBuilding(List<Building> list, String title) =>
