@@ -197,7 +197,7 @@ class _HomePageState extends State<HomePage> {
               ),
               ListTile(
                 leading: const Icon(Icons.image_outlined),
-                title: const Text('从图片导入课程'),
+                title: const Text('从图片导入课程（识别结果需手动核对）'),
                 onTap: () => Navigator.pop(ctx, 'image'),
               ),
             ],
