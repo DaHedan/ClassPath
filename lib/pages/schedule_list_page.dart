@@ -6,6 +6,7 @@ import '../models/schedule.dart';
 import '../services/schedule_math.dart';
 import '../state/app_state.dart';
 import 'course_detail_page.dart';
+import 'course_form_page.dart';
 import 'schedule_export_page.dart';
 import 'schedule_form_page.dart';
 import 'schedule_import_page.dart';
@@ -369,6 +370,20 @@ class _ActiveCoursesPanelState extends State<_ActiveCoursesPanel> {
                     child: const Text(
                       '取消',
                       style: TextStyle(fontSize: 13),
+                    ),
+                  )
+                else
+                  IconButton(
+                    onPressed: () =>
+                        showAddCourseFlow(context, widget.schedule),
+                    tooltip: '添加课程',
+                    icon: const Icon(Icons.add),
+                    iconSize: 20,
+                    padding: EdgeInsets.zero,
+                    visualDensity: VisualDensity.compact,
+                    constraints: const BoxConstraints(
+                      minWidth: 32,
+                      minHeight: 32,
                     ),
                   ),
                 Text(

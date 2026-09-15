@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -5,8 +6,69 @@ import '../models/course.dart';
 import '../models/schedule.dart';
 import '../services/color_generator.dart';
 import '../services/schedule_math.dart';
+import '../services/timetable_ocr.dart';
 import '../state/app_state.dart';
 import '../widgets/time_dial_picker.dart';
+import 'timetable_image_import_page.dart';
+
+/// 「添加课程」的统一入口：手机端先让用户选「手动添加 / 从图片导入」，
+/// 桌面与网页端（图片导入不可用）直接进手动表单。
+///
+/// 主页的加号与课程表管理页课程面板的加号都走这里，保证两处行为一致。
+Future<void> showAddCourseFlow(BuildContext context, Schedule schedule) async {
+  if (!TimetableOcr.supported) {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => CourseFormPage(schedule: schedule)),
+    );
+    return;
+  }
+  final choice = await showModalBottomSheet<String>(
+    context: context,
+    showDragHandle: true,
+    builder: (ctx) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.edit_outlined),
+            title: const Text('手动添加课程'),
+            onTap: () => Navigator.pop(ctx, 'manual'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.image_outlined),
+            title: const Text('从图片导入课程（识别结果需手动核对）'),
+            onTap: () => Navigator.pop(ctx, 'image'),
+          ),
+        ],
+      ),
+    ),
+  );
+  if (choice == null || !context.mounted) return;
+  if (choice == 'image') {
+    // 直接弹系统选图，选完才进结果页，中间不多加一层页面。
+    final picked = await FilePicker.platform.pickFiles(
+      dialogTitle: '选择课程表图片',
+      type: FileType.image,
+    );
+    final path = picked?.files.single.path;
+    if (path == null || !context.mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TimetableImageImportPage(
+          schedule: schedule,
+          imagePath: path,
+        ),
+      ),
+    );
+    return;
+  }
+  await Navigator.push(
+    context,
+    MaterialPageRoute(builder: (_) => CourseFormPage(schedule: schedule)),
+  );
+}
 
 /// 课程表单页：编号、名称、教师、上课周、上课时间（可多组）、
 /// 上课地点（总体 + 单节覆盖）、颜色、提醒、考试信息、备注。
