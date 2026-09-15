@@ -189,8 +189,13 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> deleteCourse(String uid) async {
-    courses.removeWhere((c) => c.uid == uid);
+  Future<void> deleteCourse(String uid) => deleteCourses([uid]);
+
+  /// 批量删除课程（多选删除用）：只保存、同步一次。
+  Future<void> deleteCourses(Iterable<String> uids) async {
+    final set = uids.toSet();
+    if (set.isEmpty) return;
+    courses.removeWhere((c) => set.contains(c.uid));
     await _save();
     notifyListeners();
     _sync();

@@ -229,11 +229,74 @@ class ScheduleListPage extends StatelessWidget {
 
 /// 课程表列表底部的卡片：展示选中（主页正在使用）课程表的课程列表，
 /// 每门课一行详细信息（编号、教师、上课时间、地点、上课周）。
-class _ActiveCoursesPanel extends StatelessWidget {
+///
+/// 支持拖动排序；长按课程进入多选，可批量删除。
+class _ActiveCoursesPanel extends StatefulWidget {
   final Schedule schedule;
   final List<Course> courses;
 
   const _ActiveCoursesPanel({required this.schedule, required this.courses});
+
+  @override
+  State<_ActiveCoursesPanel> createState() => _ActiveCoursesPanelState();
+}
+
+class _ActiveCoursesPanelState extends State<_ActiveCoursesPanel> {
+  /// 多选删除模式：进入后左侧显示勾选框，可批量删除。
+  bool _selecting = false;
+  final Set<String> _selected = {};
+
+  void _setSelecting(bool on) => setState(() {
+        _selecting = on;
+        _selected.clear();
+      });
+
+  /// 长按某门课：进入多选模式并勾上它。
+  void _enterSelecting(Course c) => setState(() {
+        _selecting = true;
+        _selected
+          ..clear()
+          ..add(c.uid);
+      });
+
+  void _toggle(Course c) => setState(() {
+        if (!_selected.remove(c.uid)) _selected.add(c.uid);
+      });
+
+  void _selectAll() => setState(() {
+        _selected
+          ..clear()
+          ..addAll(widget.courses.map((c) => c.uid));
+      });
+
+  Future<void> _deleteSelected() async {
+    final uids = _selected.toList();
+    if (uids.isEmpty) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除所选课程'),
+        content: Text('确定删除所选的 ${uids.length} 门课程吗？此操作不可撤销。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await context.read<AppState>().deleteCourses(uids);
+    if (!mounted) return;
+    _setSelecting(false);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text('已删除 ${uids.length} 门课程')));
+  }
 
   /// 地点紧凑文本：楼宇与房号之间不加空格（如「第一教学楼A101」）。
   static String _locText(CourseLocation loc) {
@@ -266,6 +329,8 @@ class _ActiveCoursesPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final courses = widget.courses;
+    final allSelected = courses.isNotEmpty && _selected.length == courses.length;
     return Card(
       margin: EdgeInsets.zero,
       child: Padding(
@@ -283,7 +348,7 @@ class _ActiveCoursesPanel extends StatelessWidget {
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    '当前课程表「${schedule.name}」的课程',
+                    '当前课程表「${widget.schedule.name}」的课程',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -293,6 +358,19 @@ class _ActiveCoursesPanel extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (_selecting)
+                  TextButton(
+                    onPressed: () => _setSelecting(false),
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(0, 30),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: const Text(
+                      '取消',
+                      style: TextStyle(fontSize: 13),
+                    ),
+                  ),
                 Text(
                   '${courses.length}门',
                   style: TextStyle(
@@ -302,6 +380,36 @@ class _ActiveCoursesPanel extends StatelessWidget {
                 ),
               ],
             ),
+            if (_selecting) ...[
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  TextButton(
+                    onPressed: allSelected
+                        ? () => setState(_selected.clear)
+                        : _selectAll,
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(0, 30),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: Text(
+                      allSelected ? '取消全选' : '全选',
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                  ),
+                  const Spacer(),
+                  FilledButton.tonal(
+                    onPressed: _selected.isEmpty ? null : _deleteSelected,
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(0, 34),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: Text('删除所选（${_selected.length}）'),
+                  ),
+                ],
+              ),
+            ],
             const SizedBox(height: 4),
             if (courses.isEmpty)
               Padding(
@@ -323,24 +431,34 @@ class _ActiveCoursesPanel extends StatelessWidget {
                 itemCount: courses.length,
                 onReorder: (oldIndex, newIndex) => context
                     .read<AppState>()
-                    .reorderCourses(schedule.id, oldIndex, newIndex),
+                    .reorderCourses(widget.schedule.id, oldIndex, newIndex),
                 itemBuilder: (context, index) {
                   final c = courses[index];
                   return Row(
                     key: ValueKey(c.uid),
                     children: [
-                      // 拖动拇指：按住即可调整课程顺序。
-                      ReorderableDragStartListener(
-                        index: index,
-                        child: Padding(
-                          padding: const EdgeInsets.only(right: 6),
-                          child: Icon(
-                            Icons.drag_handle,
-                            size: 18,
-                            color: Colors.grey,
+                      // 多选模式下换成勾选框，拖动排序暂时收起（避免与勾选冲突）。
+                      if (_selecting)
+                        Checkbox(
+                          value: _selected.contains(c.uid),
+                          onChanged: (_) => _toggle(c),
+                          visualDensity: VisualDensity.compact,
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                        )
+                      else
+                        // 拖动拇指：按住即可调整课程顺序。
+                        ReorderableDragStartListener(
+                          index: index,
+                          child: Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: Icon(
+                              Icons.drag_handle,
+                              size: 18,
+                              color: Colors.grey,
+                            ),
                           ),
                         ),
-                      ),
                       Expanded(child: _courseRow(context, c)),
                     ],
                   );
@@ -352,15 +470,23 @@ class _ActiveCoursesPanel extends StatelessWidget {
     );
   }
 
-  /// 每门课一行：色点 + 名称 + 详细信息，点击进入课程详情。
+  /// 每门课一行：色点 + 名称 + 详细信息，点击进入课程详情（多选模式下改为勾选）。
   Widget _courseRow(BuildContext context, Course c) {
     final theme = Theme.of(context);
     final detail = _detailOf(c);
     return InkWell(
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => CourseDetailPage(course: c)),
-      ),
+      onTap: () {
+        if (_selecting) {
+          _toggle(c);
+          return;
+        }
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => CourseDetailPage(course: c)),
+        );
+      },
+      // 长按任意一门课即进入多选，省掉一个「多选」按钮。
+      onLongPress: _selecting ? null : () => _enterSelecting(c),
       borderRadius: BorderRadius.circular(6),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 7),
@@ -398,7 +524,8 @@ class _ActiveCoursesPanel extends StatelessWidget {
                 style: const TextStyle(fontSize: 13),
               ),
             ),
-            Icon(Icons.chevron_right, size: 18, color: Colors.grey),
+            if (!_selecting)
+              Icon(Icons.chevron_right, size: 18, color: Colors.grey),
           ],
         ),
       ),
