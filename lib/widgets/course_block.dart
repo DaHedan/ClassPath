@@ -103,6 +103,8 @@ class CourseBlock extends StatelessWidget {
           ),
           clipBehavior: Clip.antiAlias,
           child: Stack(
+            // 块本身由外层约束撑满格子，内容在块内居中。
+            alignment: Alignment.center,
             children: [
               // 内部光泽：顶部受光，向下平滑淡出，形成柔和反光。
               Positioned.fill(
@@ -126,80 +128,90 @@ class CourseBlock extends StatelessWidget {
               Padding(
                 padding: EdgeInsets.symmetric(
                     horizontal: 2 * scale, vertical: 3 * scale),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  // 撑满整块宽度 + 各行 textAlign 居中，避免 Stack 默认
-                  // topStart 把较窄的文字堆到左侧。
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    showId
-                        ? Text.rich(
-                            TextSpan(
-                              children: [
-                                // 编号用常规字重，与课程名区分开。
-                                TextSpan(text: '${course.id} '),
-                                TextSpan(
-                                  text: course.name,
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.w600),
+                // 单节格子（尤其单日模式里第 14/15 节这类 40 分钟的短格）放不下
+                // 「课名 + 教师 + 时间 + 地点」时，整体等比缩小，而不是 overflow。
+                child: LayoutBuilder(
+                  builder: (context, constraints) => FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: SizedBox(
+                      width: constraints.maxWidth,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        // 撑满整块宽度 + 各行 textAlign 居中，避免较窄的文字堆到左侧。
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          showId
+                              ? Text.rich(
+                                  TextSpan(
+                                    children: [
+                                      // 编号用常规字重，与课程名区分开。
+                                      TextSpan(text: '${course.id} '),
+                                      TextSpan(
+                                        text: course.name,
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.w600),
+                                      ),
+                                    ],
+                                  ),
+                                  textAlign: TextAlign.center,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 10.5 * scale * _fontK,
+                                    height: 1.2,
+                                    color: textColor,
+                                  ),
+                                )
+                              : Text(
+                                  course.name,
+                                  textAlign: TextAlign.center,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 10.5 * scale,
+                                    fontWeight: FontWeight.w600,
+                                    height: 1.2,
+                                    color: textColor,
+                                  ),
                                 ),
-                              ],
+                          if (teacher.isNotEmpty)
+                            Text(
+                              teacher,
+                              textAlign: TextAlign.center,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                  fontSize: 8.5 * scale * _fontK,
+                                  height: 1.2,
+                                  color: textColor),
                             ),
+                          Text(
+                            timeText,
                             textAlign: TextAlign.center,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              fontSize: 10.5 * scale * _fontK,
-                              height: 1.2,
-                              color: textColor,
-                            ),
-                          )
-                        : Text(
-                            course.name,
-                            textAlign: TextAlign.center,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 10.5 * scale,
-                              fontWeight: FontWeight.w600,
-                              height: 1.2,
-                              color: textColor,
-                            ),
+                                fontSize: 8 * scale * _fontK,
+                                height: 1.2,
+                                color: textColor),
                           ),
-                    if (teacher.isNotEmpty)
-                      Text(
-                        teacher,
-                        textAlign: TextAlign.center,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                            fontSize: 8.5 * scale * _fontK,
-                            height: 1.2,
-                            color: textColor),
+                          for (final line in infoLines)
+                            Text(
+                              line,
+                              textAlign: TextAlign.center,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 8 * scale * _fontK,
+                                height: 1.2,
+                                color: textColor,
+                                // 单周模式的地点是唯一信息行，加粗突出。
+                                fontWeight: showWeeks ? null : FontWeight.w600,
+                              ),
+                            ),
+                        ],
                       ),
-                    Text(
-                      timeText,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                          fontSize: 8 * scale * _fontK,
-                          height: 1.2,
-                          color: textColor),
                     ),
-                    for (final line in infoLines)
-                      Text(
-                        line,
-                        textAlign: TextAlign.center,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 8 * scale * _fontK,
-                          height: 1.2,
-                          color: textColor,
-                          // 单周模式的地点是唯一信息行，加粗突出。
-                          fontWeight: showWeeks ? null : FontWeight.w600,
-                        ),
-                      ),
-                  ],
+                  ),
                 ),
               ),
             ],

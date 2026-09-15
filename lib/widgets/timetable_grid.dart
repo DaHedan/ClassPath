@@ -1303,6 +1303,8 @@ class _TimetableGridState extends State<TimetableGrid>
           ),
         ),
         child: Row(
+          // 撑满整格高度：否则课程块会缩到内容高度，格子下半截空着。
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             for (final group in groups)
               Expanded(
