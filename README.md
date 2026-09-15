@@ -10,7 +10,7 @@ __想要了解关于课途的详细信息（构建方法、技术说明等），
 
 ## 📦 获取工具  ![支持](https://img.shields.io/badge/支持-Android_ARM32%2F64%20|%20Windows_x64-blue)
 
-如果你的需求是下载这个软件去使用，而不是需要源代码，请到 [Releases ClassPath v1.0](https://github.com/DaHedan/ClassPath/releases/tag/v1.0.0) 下载对应的安装包，无需下载源代码。
+如果你的需求是下载这个软件去使用，而不是需要源代码，请到 [Releases ClassPath v1.1](https://github.com/DaHedan/ClassPath/releases/tag/v1.1.0) 下载对应的安装包，无需下载源代码。
 
 - **Android**：下载适用于 ARM 64位的 APK 安装
 - **Windows**：下载适用于 Windows 64位 安装包或便携版压缩包，解压 / 安装即用

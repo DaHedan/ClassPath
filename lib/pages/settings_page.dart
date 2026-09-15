@@ -77,7 +77,7 @@ class SettingsPage extends StatelessWidget {
           ListTile(
             leading: const Icon(Icons.info_outline),
             title: const Text('关于课途'),
-            subtitle: const Text('版本 1.0.0 · 数据仅保存在本地'),
+            subtitle: const Text('版本 1.1.0 · 数据仅保存在本地'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => _showAbout(context),
           ),
@@ -108,7 +108,7 @@ class SettingsPage extends StatelessWidget {
             const SizedBox(height: 12),
             Text('课途', style: theme.textTheme.titleLarge),
             const SizedBox(height: 4),
-            Text('版本 1.0.0', style: theme.textTheme.bodySmall),
+            Text('版本 1.1.0', style: theme.textTheme.bodySmall),
             const SizedBox(height: 12),
             Text(
               '课途是一款轻量课程表应用，课表与设置数据仅保存在'
