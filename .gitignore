@@ -49,6 +49,11 @@ app.*.map.json
 /android/key.properties
 /android/build/
 
+# 签名密钥库：只在本地与备份里存在，绝不提交
+*.jks
+*.keystore
+*classpath-release-pwd.txt
+
 # Windows related
 application.windows/
 
