@@ -688,8 +688,10 @@ class _CourseFormPageState extends State<CourseFormPage> {
               physics: const NeverScrollableScrollPhysics(),
               buildDefaultDragHandles: false,
               // 默认的拖动代理会套一层带高程底色的 Material，把条目范围
-              // （含卡片下方的外边距）铺成一片背景；直接原样跟手即可。
-              proxyDecorator: (child, index, animation) => child,
+              // （含卡片下方的外边距）铺成一片背景；这里只补一个透明 Material，
+              // 既不带底色，也满足行内 InkWell 对 Material 祖先的依赖。
+              proxyDecorator: (child, index, animation) =>
+                  Material(type: MaterialType.transparency, child: child),
               itemCount: _classTimes.length,
               onReorder: _reorderClassTimes,
               itemBuilder: (context, index) => _classTimeCard(
@@ -857,7 +859,8 @@ class _CourseFormPageState extends State<CourseFormPage> {
             leading: ReorderableDragStartListener(
               index: index,
               child: const Icon(
-                Icons.drag_handle,
+                // drag_indicator 是竖排圆点，比横排的 drag_handle 窄。
+                Icons.drag_indicator,
                 size: 20,
                 color: Colors.grey,
               ),

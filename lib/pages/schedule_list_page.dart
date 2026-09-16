@@ -158,6 +158,11 @@ class _ScheduleListPageState extends State<ScheduleListPage> {
               itemCount: app.schedules.length,
               // 拖动拇指自绘在每行前，footer（课程面板）不参与排序。
               buildDefaultDragHandles: false,
+              // 默认的拖动代理会套一层带高程底色的 Material，把条目矩形
+              // （含卡片下方的外边距）铺成一片背景；这里只保留一个透明的
+              // Material 供行内的 InkWell / Checkbox 使用，不带任何底色。
+              proxyDecorator: (child, index, animation) =>
+                  Material(type: MaterialType.transparency, child: child),
               onReorder: (oldIndex, newIndex) =>
                   app.reorderSchedules(oldIndex, newIndex),
               footer: _selecting
@@ -181,9 +186,10 @@ class _ScheduleListPageState extends State<ScheduleListPage> {
                         ReorderableDragStartListener(
                           index: index,
                           child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            padding: const EdgeInsets.symmetric(horizontal: 2),
                             child: Icon(
-                              Icons.drag_handle,
+                              // drag_indicator 是竖排圆点，比横排的 drag_handle 窄。
+                              Icons.drag_indicator,
                               size: 20,
                               color: Colors.grey,
                             ),
@@ -563,6 +569,9 @@ class _ActiveCoursesPanelState extends State<_ActiveCoursesPanel> {
                 physics: const NeverScrollableScrollPhysics(),
                 // 拖动拇指自绘在每行前。
                 buildDefaultDragHandles: false,
+                // 同外层列表：不要代理层的底色，只补一个透明 Material。
+                proxyDecorator: (child, index, animation) =>
+                    Material(type: MaterialType.transparency, child: child),
                 itemCount: courses.length,
                 onReorder: (oldIndex, newIndex) => context
                     .read<AppState>()
@@ -586,9 +595,10 @@ class _ActiveCoursesPanelState extends State<_ActiveCoursesPanel> {
                         ReorderableDragStartListener(
                           index: index,
                           child: Padding(
-                            padding: const EdgeInsets.only(right: 6),
+                            padding: const EdgeInsets.only(right: 4),
                             child: Icon(
-                              Icons.drag_handle,
+                              // drag_indicator 是竖排圆点，比横排的 drag_handle 窄。
+                              Icons.drag_indicator,
                               size: 18,
                               color: Colors.grey,
                             ),

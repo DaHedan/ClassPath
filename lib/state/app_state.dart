@@ -129,8 +129,10 @@ class AppState extends ChangeNotifier {
     if (newIndex < 0 || newIndex >= schedules.length) return;
     final s = schedules.removeAt(oldIndex);
     schedules.insert(newIndex, s);
-    await _save();
+    // 先通知重建再落盘：否则松手后界面会先按旧顺序结束拖动动画，
+    // 等异步写入完成才跳到新顺序，看着像闪一下。
     notifyListeners();
+    await _save();
   }
 
   /// 导入分享的课程表（每张课程表作为新课程表导入）。
@@ -214,14 +216,20 @@ class AppState extends ChangeNotifier {
     final items = coursesOf(scheduleId);
     if (oldIndex < 0 || oldIndex >= items.length) return;
     if (newIndex < 0 || newIndex >= items.length) return;
-    final moving = items[oldIndex];
-    final from = courses.indexOf(moving);
-    final to = courses.indexOf(items[newIndex]);
-    courses.removeAt(from);
-    // 移除后目标下标可能前移一位。
-    courses.insert(to > from ? to - 1 : to, moving);
-    await _save();
+    // 这门课在全局列表里占用的槽位：只在这些槽位里重排，
+    // 其它课程表课程的位置不受影响。
+    final slots = <int>[
+      for (var i = 0; i < courses.length; i++)
+        if (courses[i].scheduleId == scheduleId) i,
+    ];
+    final moving = items.removeAt(oldIndex);
+    items.insert(newIndex, moving);
+    for (var i = 0; i < slots.length; i++) {
+      courses[slots[i]] = items[i];
+    }
+    // 同 reorderSchedules：先通知重建，再异步落盘，避免松手瞬间闪回旧顺序。
     notifyListeners();
+    await _save();
   }
 
   // ---------- 设置 ----------
