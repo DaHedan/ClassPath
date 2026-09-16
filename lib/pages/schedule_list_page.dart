@@ -500,8 +500,10 @@ class _ActiveCoursesPanelState extends State<_ActiveCoursesPanel> {
           MaterialPageRoute(builder: (_) => CourseDetailPage(course: c)),
         );
       },
-      // 长按任意一门课即进入多选，省掉一个「多选」按钮。
+      // 长按任意一门课即进入多选，省掉一个「多选」按钮；
+      // 桌面端长按鼠标别扭，右键等同长按（触屏不会触发二次点击，手机端无影响）。
       onLongPress: _selecting ? null : () => _enterSelecting(c),
+      onSecondaryTap: _selecting ? null : () => _enterSelecting(c),
       borderRadius: BorderRadius.circular(6),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 7),
