@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'
+    show FilteringTextInputFormatter, TextEditingValue, TextInputFormatter;
 import 'package:provider/provider.dart';
 
 import '../models/schedule.dart';
@@ -249,13 +251,12 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
             ),
           ),
           const SizedBox(height: 16),
-          _stepperTile(
-            theme,
-            '总周数',
-            _totalWeeks,
-            1,
-            53,
-            (v) {
+          _NumberStepperTile(
+            label: '总周数',
+            value: _totalWeeks,
+            min: 1,
+            max: 53,
+            onChanged: (v) {
               setState(() {
                 _totalWeeks = v;
                 _dirty = true;
@@ -263,13 +264,12 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
               _refreshHolidays();
             },
           ),
-          _stepperTile(
-            theme,
-            '一日总节数',
-            _periodsPerDay,
-            1,
-            20,
-            (v) => setState(() {
+          _NumberStepperTile(
+            label: '一日总节数',
+            value: _periodsPerDay,
+            min: 1,
+            max: 20,
+            onChanged: (v) => setState(() {
               _periodsPerDay = v;
               _dirty = true;
               // 餐后节数超出新范围时重置为「不设置」。
@@ -430,51 +430,6 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
         ),
       ),
       ),
-    );
-  }
-
-  Widget _stepperTile(
-    ThemeData theme,
-    String label,
-    int? value,
-    int min,
-    int max,
-    ValueChanged<int> onChanged,
-  ) {
-    return Row(
-      children: [
-        Text(label, style: const TextStyle(fontSize: 14)),
-        const Spacer(),
-        IconButton(
-          icon: const Icon(Icons.remove_circle_outline),
-          onPressed:
-              value != null && value > min ? () => onChanged(value - 1) : null,
-        ),
-        SizedBox(
-          width: 52,
-          child: value == null
-              ? Text(
-                  '未设置',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      fontSize: 12, color: theme.colorScheme.outline),
-                )
-              : Text(
-                  '$value',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                      fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-        ),
-        IconButton(
-          icon: const Icon(Icons.add_circle_outline),
-          onPressed: value != null && value < max
-              ? () => onChanged(value + 1)
-              : value == null
-                  ? () => onChanged(min)
-                  : null,
-        ),
-      ],
     );
   }
 
@@ -826,4 +781,158 @@ Future<T?> _pickFromList<T>(
       ],
     ),
   );
+}
+
+/// 数字步进器：两侧按钮加减，中间的输入框可直接键盘输入。
+///
+/// [value] 为 null 表示「未设置」，此时输入框留空显示占位文字，
+/// 输入合法数字后即视为已设置。
+class _NumberStepperTile extends StatefulWidget {
+  const _NumberStepperTile({
+    required this.label,
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.onChanged,
+  });
+
+  final String label;
+  final int? value;
+  final int min;
+  final int max;
+  final ValueChanged<int> onChanged;
+
+  @override
+  State<_NumberStepperTile> createState() => _NumberStepperTileState();
+}
+
+class _NumberStepperTileState extends State<_NumberStepperTile> {
+  late final TextEditingController _ctrl = TextEditingController(
+    text: widget.value?.toString() ?? '',
+  );
+  final FocusNode _focus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    // 失焦时把输入框内容规整回合法值（清空 / 前导零等）。
+    _focus.addListener(() {
+      if (!_focus.hasFocus) _normalize();
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _NumberStepperTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final text = widget.value?.toString() ?? '';
+    if (_ctrl.text == text) return;
+    // 正在输入、且框里的内容本来就代表当前值（打字引起的重建）时不打断光标；
+    // 值是被加减按钮改掉的才同步回来，并全选，方便接着用键盘覆盖输入。
+    if (_focus.hasFocus && int.tryParse(_ctrl.text) == widget.value) return;
+    _ctrl.value = TextEditingValue(
+      text: text,
+      selection: TextSelection(baseOffset: 0, extentOffset: text.length),
+    );
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
+
+  /// 失焦/回车后把显示规整成当前值（清空或前导零会还原）。
+  void _normalize() {
+    final text = widget.value?.toString() ?? '';
+    if (_ctrl.text == text) return;
+    _ctrl.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+  }
+
+  void _onChanged(String text) {
+    final n = int.tryParse(text);
+    if (n == null) return; // 输入框清空：保留原值，失焦时再还原显示
+    if (n != widget.value) widget.onChanged(n);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final value = widget.value;
+    return Row(
+      children: [
+        Text(widget.label, style: const TextStyle(fontSize: 14)),
+        const Spacer(),
+        IconButton(
+          icon: const Icon(Icons.remove_circle_outline),
+          onPressed: value != null && value > widget.min
+              ? () => widget.onChanged(value - 1)
+              : null,
+        ),
+        SizedBox(
+          width: 56,
+          child: TextField(
+            controller: _ctrl,
+            focusNode: _focus,
+            textAlign: TextAlign.center,
+            keyboardType: TextInputType.number,
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+              _RangeIntFormatter(min: widget.min, max: widget.max),
+            ],
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            decoration: InputDecoration(
+              isDense: true,
+              filled: true,
+              fillColor: theme.colorScheme.surfaceContainerHighest,
+              hintText: '未设置',
+              hintStyle: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.normal,
+                color: theme.colorScheme.outline,
+              ),
+              contentPadding: const EdgeInsets.symmetric(vertical: 8),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide.none,
+              ),
+            ),
+            onChanged: _onChanged,
+            onSubmitted: (_) => _normalize(),
+          ),
+        ),
+        IconButton(
+          icon: const Icon(Icons.add_circle_outline),
+          onPressed: value != null && value < widget.max
+              ? () => widget.onChanged(value + 1)
+              : value == null
+                  ? () => widget.onChanged(widget.min)
+                  : null,
+        ),
+      ],
+    );
+  }
+}
+
+/// 只放行空串或 [min, max] 范围内的整数，越界/非数字的输入直接丢弃。
+class _RangeIntFormatter extends TextInputFormatter {
+  _RangeIntFormatter({required this.min, required this.max});
+
+  final int min;
+  final int max;
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final text = newValue.text.trim();
+    if (text.isEmpty) return newValue;
+    final n = int.tryParse(text);
+    if (n == null || n < min || n > max) return oldValue;
+    return newValue;
+  }
 }
