@@ -98,10 +98,15 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> deleteSchedule(String id) async {
-    schedules.removeWhere((e) => e.id == id);
-    courses.removeWhere((c) => c.scheduleId == id);
-    if (settings.activeScheduleId == id) {
+  Future<void> deleteSchedule(String id) => deleteSchedules([id]);
+
+  /// 批量删除课程表：一并删掉它们的课程，只保存 / 通知一次。
+  Future<void> deleteSchedules(Iterable<String> ids) async {
+    final set = ids.toSet();
+    if (set.isEmpty) return;
+    schedules.removeWhere((e) => set.contains(e.id));
+    courses.removeWhere((c) => set.contains(c.scheduleId));
+    if (set.contains(settings.activeScheduleId)) {
       settings.activeScheduleId =
           schedules.isNotEmpty ? schedules.first.id : null;
     }

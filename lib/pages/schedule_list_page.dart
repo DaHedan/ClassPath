@@ -14,13 +14,75 @@ import 'settings_page.dart';
 
 /// 课程表管理页（主页右上角菜单进入）：
 /// 添加 / 编辑 / 删除课程表，选择正在使用的课程表，进入设置。
-class ScheduleListPage extends StatelessWidget {
+///
+/// 长按（桌面端右键）某张课程表进入多选，可批量删除。
+class ScheduleListPage extends StatefulWidget {
   const ScheduleListPage({super.key});
+
+  @override
+  State<ScheduleListPage> createState() => _ScheduleListPageState();
+}
+
+class _ScheduleListPageState extends State<ScheduleListPage> {
+  /// 多选删除模式：进入后每行左侧换成勾选框。
+  bool _selecting = false;
+  final Set<String> _selected = {};
+
+  void _setSelecting(bool on) => setState(() {
+        _selecting = on;
+        _selected.clear();
+      });
+
+  /// 长按 / 右键某张课程表：进入多选并勾上它。
+  void _enterSelecting(String id) => setState(() {
+        _selecting = true;
+        _selected
+          ..clear()
+          ..add(id);
+      });
+
+  void _toggle(String id) => setState(() {
+        if (!_selected.remove(id)) _selected.add(id);
+      });
+
+  Future<void> _deleteSelected() async {
+    final ids = _selected.toList();
+    if (ids.isEmpty) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除所选课程表'),
+        content: Text(
+          '确定删除所选的 ${ids.length} 张课程表吗？'
+          '其中的课程将一并删除，此操作不可撤销。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await context.read<AppState>().deleteSchedules(ids);
+    if (!mounted) return;
+    _setSelecting(false);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text('已删除 ${ids.length} 张课程表')));
+  }
 
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
     final activeId = app.activeSchedule?.id;
+    final allIds = app.schedules.map((s) => s.id).toList();
+    final allSelected = allIds.isNotEmpty && _selected.length == allIds.length;
 
     Future<void> confirmDelete(String id, String name) async {
       final ok = await showDialog<bool>(
@@ -45,17 +107,44 @@ class ScheduleListPage extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('课程表管理'),
-        actions: [
-          IconButton(
-            tooltip: '设置',
-            icon: const Icon(Icons.settings_outlined),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const SettingsPage()),
-            ),
-          ),
-        ],
+        leading: _selecting
+            ? IconButton(
+                tooltip: '退出多选',
+                icon: const Icon(Icons.close),
+                onPressed: () => _setSelecting(false),
+              )
+            : null,
+        title: _selecting
+            ? Text('已选 ${_selected.length} 张')
+            : const Text('课程表管理'),
+        actions: _selecting
+            ? [
+                TextButton(
+                  onPressed: allSelected
+                      ? () => setState(_selected.clear)
+                      : () => setState(() {
+                            _selected
+                              ..clear()
+                              ..addAll(allIds);
+                          }),
+                  child: Text(allSelected ? '取消全选' : '全选'),
+                ),
+                IconButton(
+                  tooltip: '删除所选',
+                  icon: const Icon(Icons.delete_outline),
+                  onPressed: _selected.isEmpty ? null : _deleteSelected,
+                ),
+              ]
+            : [
+                IconButton(
+                  tooltip: '设置',
+                  icon: const Icon(Icons.settings_outlined),
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const SettingsPage()),
+                  ),
+                ),
+              ],
       ),
       body: app.schedules.isEmpty
           ? Center(
@@ -71,13 +160,15 @@ class ScheduleListPage extends StatelessWidget {
               buildDefaultDragHandles: false,
               onReorder: (oldIndex, newIndex) =>
                   app.reorderSchedules(oldIndex, newIndex),
-              footer: Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: _ActiveCoursesPanel(
-                  schedule: app.activeSchedule!,
-                  courses: app.coursesOf(app.activeSchedule!.id),
-                ),
-              ),
+              footer: _selecting
+                  ? null
+                  : Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: _ActiveCoursesPanel(
+                        schedule: app.activeSchedule!,
+                        courses: app.coursesOf(app.activeSchedule!.id),
+                      ),
+                    ),
               itemBuilder: (context, index) {
                 final s = app.schedules[index];
                 return Card(
@@ -85,105 +176,134 @@ class ScheduleListPage extends StatelessWidget {
                   margin: const EdgeInsets.only(bottom: 8),
                   child: Row(
                     children: [
-                      // 拖动拇指：按住即可调整课程表顺序。
-                      ReorderableDragStartListener(
-                        index: index,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
-                          child: Icon(
-                            Icons.drag_handle,
-                            size: 20,
-                            color: Colors.grey,
-                          ),
-                        ),
-                      ),
-                      Expanded(
-                        child: ListTile(
-                          // 去掉左侧默认内边距，让选中圆点紧贴拖动拇指；
-                          // 保留右侧内边距，菜单按钮不贴卡片边缘。
-                          contentPadding: const EdgeInsets.only(right: 16),
-                          leading: Radio<String>(
-                            value: s.id,
-                            groupValue: activeId,
-                            onChanged: (_) => app.setActiveSchedule(s.id),
-                          ),
-                          title: Text(
-                            s.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          subtitle: Text(
-                            '${s.info} · ${app.coursesOf(s.id).length}门课',
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                          isThreeLine: false,
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => ScheduleFormPage(schedule: s),
+                      // 拖动拇指：按住即可调整课程表顺序；多选时收起，避免与勾选冲突。
+                      if (!_selecting)
+                        ReorderableDragStartListener(
+                          index: index,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            child: Icon(
+                              Icons.drag_handle,
+                              size: 20,
+                              color: Colors.grey,
                             ),
                           ),
-                          // 分享/编辑/删除收进「更多」菜单，避免三个按钮挤占
-                          // 课程表名的横向空间（手机端基本看不到名字）。
-                          trailing: PopupMenuButton<String>(
-                            tooltip: '更多操作',
-                            onSelected: (v) {
-                              if (v == 'share') {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => ScheduleExportPage(
-                                      schedule: s,
-                                      courses: app.coursesOf(s.id),
-                                    ),
+                        ),
+                      Expanded(
+                        // 桌面端用右键等同长按，进入多选。
+                        child: GestureDetector(
+                          onSecondaryTap: _selecting
+                              ? null
+                              : () => _enterSelecting(s.id),
+                          child: ListTile(
+                            // 去掉左侧默认内边距，让选中圆点紧贴拖动拇指；
+                            // 保留右侧内边距，菜单按钮不贴卡片边缘。
+                            contentPadding: const EdgeInsets.only(right: 16),
+                            leading: _selecting
+                                ? Checkbox(
+                                    value: _selected.contains(s.id),
+                                    onChanged: (_) => _toggle(s.id),
+                                    visualDensity: VisualDensity.compact,
+                                    materialTapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                  )
+                                : Radio<String>(
+                                    value: s.id,
+                                    groupValue: activeId,
+                                    onChanged: (_) =>
+                                        app.setActiveSchedule(s.id),
                                   ),
-                                );
-                              } else if (v == 'edit') {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) =>
-                                        ScheduleFormPage(schedule: s),
-                                  ),
-                                );
-                              } else if (v == 'delete') {
-                                confirmDelete(s.id, s.name);
+                            title: Text(
+                              s.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            subtitle: Text(
+                              '${s.info} · ${app.coursesOf(s.id).length}门课',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            isThreeLine: false,
+                            onTap: () {
+                              if (_selecting) {
+                                _toggle(s.id);
+                                return;
                               }
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => ScheduleFormPage(schedule: s),
+                                ),
+                              );
                             },
-                            itemBuilder: (ctx) => [
-                              PopupMenuItem(
-                                value: 'share',
-                                child: Row(
-                                  children: const [
-                                    Icon(Icons.share_outlined, size: 18),
-                                    SizedBox(width: 10),
-                                    Text('分享'),
-                                  ],
-                                ),
-                              ),
-                              PopupMenuItem(
-                                value: 'edit',
-                                child: Row(
-                                  children: const [
-                                    Icon(Icons.edit_outlined, size: 18),
-                                    SizedBox(width: 10),
-                                    Text('编辑'),
-                                  ],
-                                ),
-                              ),
-                              PopupMenuItem(
-                                value: 'delete',
-                                child: Row(
-                                  children: [
-                                    const Icon(Icons.delete_outline,
-                                        size: 18, color: Colors.red),
-                                    const SizedBox(width: 10),
-                                    const Text('删除',
-                                        style: TextStyle(color: Colors.red)),
-                                  ],
-                                ),
-                              ),
-                            ],
+                            // 长按即进入多选，省掉一个「多选」按钮。
+                            onLongPress: _selecting
+                                ? null
+                                : () => _enterSelecting(s.id),
+                            // 分享/编辑/删除收进「更多」菜单，避免三个按钮挤占
+                            // 课程表名的横向空间（手机端基本看不到名字）。
+                            trailing: _selecting
+                                ? null
+                                : PopupMenuButton<String>(
+                                    tooltip: '更多操作',
+                                    onSelected: (v) {
+                                      if (v == 'share') {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) => ScheduleExportPage(
+                                              schedule: s,
+                                              courses: app.coursesOf(s.id),
+                                            ),
+                                          ),
+                                        );
+                                      } else if (v == 'edit') {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) =>
+                                                ScheduleFormPage(schedule: s),
+                                          ),
+                                        );
+                                      } else if (v == 'delete') {
+                                        confirmDelete(s.id, s.name);
+                                      }
+                                    },
+                                    itemBuilder: (ctx) => [
+                                      PopupMenuItem(
+                                        value: 'share',
+                                        child: Row(
+                                          children: const [
+                                            Icon(Icons.share_outlined, size: 18),
+                                            SizedBox(width: 10),
+                                            Text('分享'),
+                                          ],
+                                        ),
+                                      ),
+                                      PopupMenuItem(
+                                        value: 'edit',
+                                        child: Row(
+                                          children: const [
+                                            Icon(Icons.edit_outlined, size: 18),
+                                            SizedBox(width: 10),
+                                            Text('编辑'),
+                                          ],
+                                        ),
+                                      ),
+                                      PopupMenuItem(
+                                        value: 'delete',
+                                        child: Row(
+                                          children: [
+                                            const Icon(Icons.delete_outline,
+                                                size: 18, color: Colors.red),
+                                            const SizedBox(width: 10),
+                                            const Text('删除',
+                                                style: TextStyle(
+                                                    color: Colors.red)),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                           ),
                         ),
                       ),
