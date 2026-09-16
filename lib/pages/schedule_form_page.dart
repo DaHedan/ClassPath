@@ -285,9 +285,18 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
                 _firstMonday == null ? '未设置' : ScheduleMath.formatFull(_firstMonday!)),
             trailing: const Icon(Icons.calendar_month_outlined),
             onTap: () async {
+              // showDatePicker 要求 initialDate 必须满足 selectableDayPredicate，
+              // 这里只允许选周一：未设置（或旧数据不是周一）时就近取该周的周一，
+              // 否则直接抛断言异常。
+              final base = _firstMonday ?? DateTime.now();
+              final initial = DateTime(
+                base.year,
+                base.month,
+                base.day - (base.weekday - DateTime.monday),
+              );
               final d = await showDatePicker(
                 context: context,
-                initialDate: _firstMonday ?? DateTime.now(),
+                initialDate: initial,
                 firstDate: DateTime(2000),
                 lastDate: DateTime(2100),
                 // 第一周周一只能是周一。
