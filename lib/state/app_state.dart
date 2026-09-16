@@ -81,7 +81,8 @@ class AppState extends ChangeNotifier {
 
   Future<void> addSchedule(Schedule s) async {
     schedules.add(s);
-    if (settings.activeScheduleId == null) settings.activeScheduleId = s.id;
+    // 新建后直接切到新表：刚建完就是要用它，省得再手动切一次。
+    settings.activeScheduleId = s.id;
     await _save();
     notifyListeners();
     _sync();
