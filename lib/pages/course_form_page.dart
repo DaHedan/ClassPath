@@ -419,6 +419,18 @@ class _CourseFormPageState extends State<CourseFormPage> {
     }
   }
 
+  /// 调整上课时间的先后顺序（ReorderableListView 传入的 oldIndex/newIndex）。
+  void _reorderClassTimes(int oldIndex, int newIndex) {
+    if (newIndex > oldIndex) newIndex--;
+    if (oldIndex < 0 || oldIndex >= _classTimes.length) return;
+    if (newIndex < 0 || newIndex >= _classTimes.length) return;
+    setState(() {
+      final t = _classTimes.removeAt(oldIndex);
+      _classTimes.insert(newIndex, t);
+      _dirty = true;
+    });
+  }
+
   static const _remindPresets = <int?>[5, 10, 15, 30, 60, 120, 1440];
 
   static String _remindLabel(int m) {
@@ -668,9 +680,26 @@ class _CourseFormPageState extends State<CourseFormPage> {
               child: Text('至少添加一组上课时间',
                   style: TextStyle(
                       fontSize: 12, color: theme.colorScheme.outline)),
+            )
+          else
+            // 拖动拇指可调整上课时间的先后顺序。
+            ReorderableListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              buildDefaultDragHandles: false,
+              // 默认的拖动代理会套一层带高程底色的 Material，把条目范围
+              // （含卡片下方的外边距）铺成一片背景；直接原样跟手即可。
+              proxyDecorator: (child, index, animation) => child,
+              itemCount: _classTimes.length,
+              onReorder: _reorderClassTimes,
+              itemBuilder: (context, index) => _classTimeCard(
+                theme,
+                _classTimes[index],
+                index,
+                // 每个条目必须有稳定的 key，排序动画才跟得住。
+                key: ObjectKey(_classTimes[index]),
+              ),
             ),
-          for (var i = 0; i < _classTimes.length; i++)
-            _classTimeCard(theme, _classTimes[i], i),
           const SizedBox(height: 16),
           // 提醒：下拉含预设值与「自定义…」。选中「自定义…」时先等下拉
           // 菜单路由完全关闭再弹输入框（见 _pickCustomRemind）。
@@ -811,7 +840,7 @@ class _CourseFormPageState extends State<CourseFormPage> {
     );
   }
 
-  Widget _classTimeCard(ThemeData theme, ClassTime ct, int index) {
+  Widget _classTimeCard(ThemeData theme, ClassTime ct, int index, {Key? key}) {
     final loc = ct.location;
     final weekText = ct.weeks == null
         ? '全部周'
@@ -819,10 +848,20 @@ class _CourseFormPageState extends State<CourseFormPage> {
             ? '未选择'
             : ScheduleMath.weeksToText(ct.weeks!);
     return Card(
+      key: key,
       margin: const EdgeInsets.only(bottom: 8),
       child: Column(
         children: [
           ListTile(
+            // 拖动拇指放在卡片内（贴近标题），不额外挤占横向空间。
+            leading: ReorderableDragStartListener(
+              index: index,
+              child: const Icon(
+                Icons.drag_handle,
+                size: 20,
+                color: Colors.grey,
+              ),
+            ),
             title: Text(
               '${ct.weekdayLabel} ${ct.periodLabel}  ${ct.start}-${ct.end}',
               style: const TextStyle(fontSize: 14),
