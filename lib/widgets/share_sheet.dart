@@ -1,7 +1,7 @@
 import 'dart:convert';
-import 'dart:io' show Platform;
-import 'dart:typed_data';
+import 'dart:io' show File, Platform;
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -31,6 +31,30 @@ Future<bool> _shareFileTo(
 
 /// 分享面板的内容类型：课程表数据文件（json）或二维码图片。
 enum ShareContentType { dataFile, image }
+
+/// 弹系统「另存为」对话框并把 [bytes] 写盘，返回保存路径（用户取消返回 null）。
+///
+/// 桌面端（Windows / Linux / macOS）的 file_picker 只负责弹框、返回用户选的
+/// 路径，不会写文件，必须自己落盘；移动端由插件负责写入，这里不能重复写。
+Future<String?> saveBytesToDisk({
+  required Uint8List bytes,
+  required String fileName,
+  required List<String> allowedExtensions,
+  String? dialogTitle,
+}) async {
+  final path = await FilePicker.platform.saveFile(
+    dialogTitle: dialogTitle ?? '保存$fileName',
+    fileName: fileName,
+    type: FileType.custom,
+    allowedExtensions: allowedExtensions,
+    bytes: bytes,
+  );
+  if (path == null) return null;
+  final isDesktop = !kIsWeb &&
+      (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
+  if (isDesktop) await File(path).writeAsBytes(bytes);
+  return path;
+}
 
 /// 底部弹出式分享面板（国产 App 常见样式）。
 ///

@@ -42,21 +42,78 @@ class BuildingsSharePage extends StatefulWidget {
 class _BuildingsSharePageState extends State<BuildingsSharePage> {
   bool get _isMobile => !kIsWeb && (Platform.isAndroid || Platform.isIOS);
 
-  /// 楼宇 JSON：二维码与数据文件共用同一份数据。
-  late final Map<String, dynamic> _jsonMap =
-      BuildingsSharePackage(widget.buildings).toJson();
-  late final String _json = ScheduleShareService.encodeJson(_jsonMap);
-  late final String? _payload = ScheduleShareService.qrPayloadOf(_jsonMap);
+  /// 勾选要分享的楼宇（[widget.buildings] 的下标），默认全选。
+  late Set<int> _selected = {
+    for (var i = 0; i < widget.buildings.length; i++) i,
+  };
 
-  /// 待导出的二维码图片（导入模式不渲染）。
-  late final Uint8List? _qrPng = _payload == null
-      ? null
-      : ScheduleShareService.renderQrPng(
-          _payload,
-          size: 260,
-          quiet: 20,
-          scale: 3,
-        );
+  /// 分享时是否带上各楼节的节次时间段。
+  bool _withPeriods = true;
+
+  /// 楼宇 JSON 与二维码：二维码与数据文件共用同一份数据
+  /// （导出模式下由「分享内容」选项决定内容）。
+  String _json = '';
+  String? _payload;
+
+  /// 待导出的二维码图片（导入模式或内容过大时为 null）。
+  Uint8List? _qrPng;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!widget.importMode) _rebuild();
+  }
+
+  /// 按当前选项重新生成 json / 二维码（不触发重建，调用方负责 setState）。
+  void _rebuild() {
+    final json = BuildingsSharePackage(_effectiveBuildings).toJson();
+    _json = ScheduleShareService.encodeJson(json);
+    _payload = ScheduleShareService.qrPayloadOf(json);
+    _qrPng = _payload == null
+        ? null
+        : ScheduleShareService.renderQrPng(
+            _payload!,
+            size: 260,
+            quiet: 20,
+            scale: 3,
+          );
+  }
+
+  /// 当前选项下真正要分享的楼宇；未勾选任何楼宇时为空。
+  List<Building> get _effectiveBuildings => [
+        for (var i = 0; i < widget.buildings.length; i++)
+          if (_selected.contains(i))
+            _withPeriods
+                ? widget.buildings[i].copy()
+                : (widget.buildings[i].copy()..periodTimes = []),
+      ];
+
+  /// 「分享内容」一行里的摘要文字。
+  String _optionsSummary() {
+    final total = widget.buildings.length;
+    if (_selected.isEmpty) return '未选择任何楼宇';
+    final scope =
+        _selected.length == total ? '全部 $total 栋楼宇' : '已选 ${_selected.length}/$total 栋楼宇';
+    return '$scope · ${_withPeriods ? '含节次时间段' : '仅楼宇名称'}';
+  }
+
+  /// 打开「分享内容」弹窗：勾选楼宇、选择是否带节次时间段。
+  Future<void> _openOptions() async {
+    final result = await showDialog<({Set<int> selected, bool withPeriods})>(
+      context: context,
+      builder: (_) => _BuildingsOptionsDialog(
+        buildings: widget.buildings,
+        initialSelected: _selected,
+        initialWithPeriods: _withPeriods,
+      ),
+    );
+    if (result == null || !mounted) return;
+    setState(() {
+      _selected = result.selected;
+      _withPeriods = result.withPeriods;
+      _rebuild();
+    });
+  }
 
   void _snack(String msg) => ScaffoldMessenger.of(context)
     ..hideCurrentSnackBar()
@@ -93,22 +150,33 @@ class _BuildingsSharePageState extends State<BuildingsSharePage> {
   }
 
   /// 二维码图片：手机端弹分享面板，桌面端另存为 PNG。
+  ///
+  /// 与课程表分享一致：导出的不是裸二维码，而是带名称/提示的分享卡片
+  /// （页面展示仍用纯二维码，方便直接扫）。
   Future<void> _exportQr() async {
     final png = _qrPng;
     if (png == null) return;
+    final card = await ScheduleShareService.renderShareCardPng(
+          qrPng: png,
+          title: _shareTitle,
+          subtitle: '共 ${_effectiveBuildings.length} 栋楼宇',
+          tip: '扫一扫，导入楼宇配置',
+        ) ??
+        png;
+    if (!mounted) return;
     if (!_isMobile) {
-      await _saveToDisk(png, _qrName, 'png');
+      await _saveToDisk(card, _qrName, 'png');
       return;
     }
     await showShareSheet(
       context,
       title: _shareTitle,
       type: ShareContentType.image,
-      bytes: png,
+      bytes: card,
       fileName: _qrName,
       mimeType: 'image/png',
-      onMore: () => _shareViaSystem(png, 'image/png', _qrName),
-      onSave: () => _saveToDisk(png, _qrName, 'png'),
+      onMore: () => _shareViaSystem(card, 'image/png', _qrName),
+      onSave: () => _saveToDisk(card, _qrName, 'png'),
     );
   }
 
@@ -134,12 +202,11 @@ class _BuildingsSharePageState extends State<BuildingsSharePage> {
     String fileName,
     String ext,
   ) async {
-    final path = await FilePicker.platform.saveFile(
-      dialogTitle: '保存$fileName',
-      fileName: fileName,
-      type: FileType.custom,
-      allowedExtensions: [ext],
+    final path = await saveBytesToDisk(
       bytes: bytes,
+      fileName: fileName,
+      allowedExtensions: [ext],
+      dialogTitle: '保存$fileName',
     );
     if (path != null && mounted) _snack('已保存到 $path');
   }
@@ -226,35 +293,100 @@ class _BuildingsSharePageState extends State<BuildingsSharePage> {
 
   List<Widget> _exportChildren(BuildContext context) {
     final theme = Theme.of(context);
-    final qrUsable = _payload != null;
+    final hasSelection = _selected.isNotEmpty;
+    final qrUsable = hasSelection && _payload != null && _qrPng != null;
     return [
-      Text(
-        '共 ${widget.buildings.length} 栋楼宇（含各楼节次时间段）',
-        style: TextStyle(fontSize: 13, color: theme.colorScheme.outline),
-      ),
-      const SizedBox(height: 12),
-      if (qrUsable && _qrPng != null)
-        Center(
-          child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Image.memory(_qrPng, width: 220, height: 220),
+      // 楼宇信息
+      Card(
+        child: ListTile(
+          leading: Icon(
+            Icons.apartment_outlined,
+            color: theme.colorScheme.primary,
           ),
-        )
-      else
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 24),
-          child: Text(
-            '楼宇内容较多，二维码装不下，请用「数据文件」分享。',
-            style: TextStyle(fontSize: 13, color: theme.colorScheme.error),
+          title: Text(
+            widget.title.isEmpty ? '学校楼宇' : widget.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          subtitle: Text(
+            '共 ${widget.buildings.length} 栋楼宇（含各楼节次时间段）',
+            style: const TextStyle(fontSize: 12),
           ),
         ),
+      ),
+      const SizedBox(height: 12),
+      // 分享内容：可选内容在此调整。
+      Card(
+        child: ListTile(
+          leading: Icon(Icons.tune, color: theme.colorScheme.primary),
+          title: const Text('分享内容'),
+          subtitle: Text(
+            _optionsSummary(),
+            style: const TextStyle(fontSize: 12),
+          ),
+          trailing: const Icon(Icons.chevron_right, size: 20),
+          onTap: _openOptions,
+        ),
+      ),
+      const SizedBox(height: 16),
+      // 二维码
+      Card(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            children: [
+              Text(
+                '扫码导入这些楼宇',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+              const SizedBox(height: 16),
+              if (!hasSelection)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Text(
+                    '未选择任何楼宇，无法分享。',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: theme.colorScheme.error,
+                    ),
+                  ),
+                )
+              else if (!qrUsable)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Text(
+                    '楼宇内容过多，二维码装不下。\n'
+                    '请使用下方「${_isMobile ? '分享数据文件' : '保存数据文件'}」导出。',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: theme.colorScheme.outline,
+                    ),
+                  ),
+                )
+              else
+                Center(
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Image.memory(_qrPng!, width: 240, height: 240),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
       const SizedBox(height: 16),
       FilledButton.icon(
-        onPressed: _exportJson,
+        onPressed: hasSelection ? _exportJson : null,
         icon: Icon(
           _isMobile ? Icons.share_outlined : Icons.download_outlined,
         ),
@@ -262,7 +394,7 @@ class _BuildingsSharePageState extends State<BuildingsSharePage> {
       ),
       const SizedBox(height: 8),
       OutlinedButton.icon(
-        onPressed: qrUsable && _qrPng != null ? _exportQr : null,
+        onPressed: qrUsable ? _exportQr : null,
         icon: Icon(
           _isMobile ? Icons.qr_code_2_outlined : Icons.image_outlined,
         ),
@@ -329,6 +461,118 @@ class _BuildingsSharePageState extends State<BuildingsSharePage> {
         trailing: const Icon(Icons.chevron_right),
         onTap: onTap,
       ),
+    );
+  }
+}
+
+/// 楼宇分享内容选择弹窗：勾选要分享的楼宇、是否带上节次时间段。
+class _BuildingsOptionsDialog extends StatefulWidget {
+  final List<Building> buildings;
+  final Set<int> initialSelected;
+  final bool initialWithPeriods;
+
+  const _BuildingsOptionsDialog({
+    required this.buildings,
+    required this.initialSelected,
+    required this.initialWithPeriods,
+  });
+
+  @override
+  State<_BuildingsOptionsDialog> createState() =>
+      _BuildingsOptionsDialogState();
+}
+
+class _BuildingsOptionsDialogState extends State<_BuildingsOptionsDialog> {
+  late Set<int> _selected = {...widget.initialSelected};
+  late bool _withPeriods = widget.initialWithPeriods;
+
+  void _toggle(int index, bool on) => setState(() {
+        if (on) {
+          _selected.add(index);
+        } else {
+          _selected.remove(index);
+        }
+      });
+
+  @override
+  Widget build(BuildContext context) {
+    final allSelected = _selected.length == widget.buildings.length;
+    return AlertDialog(
+      title: const Text('分享内容'),
+      content: SizedBox(
+        width: 320,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CheckboxListTile(
+                value: _withPeriods,
+                onChanged: (v) => setState(() => _withPeriods = v ?? true),
+                controlAffinity: ListTileControlAffinity.leading,
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                title: const Text('节次时间段'),
+                subtitle: const Text(
+                  '取消后只分享楼宇名称',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ),
+              const Divider(height: 16),
+              Row(
+                children: [
+                  const Text('楼宇：'),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () => setState(() {
+                      if (allSelected) {
+                        _selected.clear();
+                      } else {
+                        _selected = {
+                          for (var i = 0; i < widget.buildings.length; i++) i,
+                        };
+                      }
+                    }),
+                    child: Text(allSelected ? '取消全选' : '全选'),
+                  ),
+                ],
+              ),
+              for (var i = 0; i < widget.buildings.length; i++)
+                CheckboxListTile(
+                  value: _selected.contains(i),
+                  onChanged: (v) => _toggle(i, v ?? false),
+                  controlAffinity: ListTileControlAffinity.leading,
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: Text(
+                    widget.buildings[i].name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(
+                    widget.buildings[i].periodTimes.isEmpty
+                        ? '未设置节次时间'
+                        : '共 ${widget.buildings[i].periodTimes.length} 段节次时间',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(
+            context,
+            (selected: _selected, withPeriods: _withPeriods),
+          ),
+          child: const Text('确定'),
+        ),
+      ],
     );
   }
 }

@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:archive/archive.dart';
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:image/image.dart' as img;
 import 'package:qr/qr.dart' show QrCode, QrErrorCorrectLevel, QrImage;
 import 'package:zxing2/qrcode.dart' as zxing;
@@ -228,16 +230,16 @@ class ScheduleShareService {
   static String? qrPayload(Schedule schedule, List<Course> courses) =>
       qrPayloadOf(_compact(schedule, courses));
 
-  /// 生成任意课途 JSON 的二维码内容（规则同上：压缩与原文取短者）。
+  /// 生成任意课途 JSON 的二维码内容。
+  ///
+  /// 一律输出 gzip + base64（纯 ASCII）：扫码读取端（zxing）在没有 ECI 时
+  /// 会自己猜字符集，直接放 UTF-8 原文会让中文被猜错、读成乱码，
+  /// 因此不做「与原文取短」的优化。超出二维码容量返回 null。
   static String? qrPayloadOf(Map<String, dynamic> json) {
-    final compact = jsonEncode(json);
-    final rawBytes = utf8.encode(compact);
+    final rawBytes = utf8.encode(jsonEncode(json));
     final compressed =
         '$compressedMagic${base64Encode(GZipEncoder().encodeBytes(Uint8List.fromList(rawBytes), level: 9))}';
-    if (compressed.length < rawBytes.length) {
-      return compressed.length <= _qrMaxBytes ? compressed : null;
-    }
-    return rawBytes.length <= _qrMaxBytes ? compact : null;
+    return compressed.length <= _qrMaxBytes ? compressed : null;
   }
 
   /// 把二维码内容还原为 JSON（自动处理 gzip 压缩），失败返回 null。
@@ -554,6 +556,171 @@ class ScheduleShareService {
       }
     }
     return img.encodePng(im);
+  }
+
+  /// 分享卡片与二维码的统一渲染参数：二维码逻辑尺寸 [qrRenderSize]、
+  /// 静区 [qrQuiet]，均以 [qrScale] 倍分辨率输出。
+  static const double qrRenderSize = 260;
+  static const double qrQuiet = 20;
+  static const int qrScale = 3;
+
+  /// 离屏绘制「分享卡片」PNG：顶部课途图标 + 名称，中部二维码，底部提示。
+  ///
+  /// [qrPng] 必须是 [renderQrPng] 在 `size: qrRenderSize, quiet: qrQuiet,
+  /// scale: qrScale` 下的输出（页面展示与导出共用同一张图）。
+  /// 文字 / 图标用 Flutter Canvas 绘制、按 [qrScale] 倍输出，
+  /// 二维码用 image 库绘制后原像素合成，保证图片里的二维码能被 zxing 解码。
+  /// 绘制失败返回 null。
+  static Future<Uint8List?> renderShareCardPng({
+    required Uint8List qrPng,
+    required String title,
+    required String subtitle,
+    required String tip,
+  }) async {
+    final qrDecoded = img.decodeImage(qrPng);
+    if (qrDecoded == null) return null;
+
+    final scale = qrScale.toDouble();
+    const w = 380.0;
+    const pad = 16.0;
+    const iconSize = 18.0;
+
+    // 软件图标
+    final iconData = await rootBundle.load('assets/ClassPath_1024.png');
+    final iconImage = await decodeImageFromList(iconData.buffer.asUint8List());
+    final iconSrc = Rect.fromLTWH(
+      0,
+      0,
+      iconImage.width.toDouble(),
+      iconImage.height.toDouble(),
+    );
+
+    // 预排版各段文字，拿到真实尺寸。
+    final nameTp = TextPainter(
+      text: TextSpan(
+        text: title,
+        style: const TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.w700,
+          color: Color(0xFF222222),
+          height: 1.3,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+      textAlign: TextAlign.center,
+      maxLines: 2,
+      ellipsis: '…',
+    )..layout(maxWidth: w - pad * 2);
+    final subTp = TextPainter(
+      text: TextSpan(
+        text: subtitle,
+        style: const TextStyle(fontSize: 12, color: Color(0xFF888888)),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final tipTp = TextPainter(
+      text: TextSpan(
+        text: tip,
+        style: const TextStyle(fontSize: 12, color: Color(0xFF666666)),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final brandTp = TextPainter(
+      text: const TextSpan(
+        text: '课途',
+        style: TextStyle(
+          fontSize: 15,
+          fontWeight: FontWeight.w700,
+          color: Color(0xFF333333),
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+
+    // 卡片总高。
+    final qrArea = qrRenderSize + qrQuiet * 2;
+    final h = pad +
+        iconSize +
+        10 +
+        nameTp.height +
+        4 +
+        subTp.height +
+        12 +
+        qrArea +
+        12 +
+        tipTp.height +
+        pad;
+
+    // 离屏绘制文字层（放大 scale 倍保证导出清晰），二维码区域留白。
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    canvas.scale(scale);
+    canvas.drawRect(Rect.fromLTWH(0, 0, w, h), Paint()..color = Colors.white);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(0, 0, w, h),
+        const Radius.circular(16),
+      ),
+      Paint()..color = Colors.white,
+    );
+
+    // 顶部：软件图标 + 课途
+    final brandTotal = iconSize + 6 + brandTp.width;
+    var y = pad;
+    final iconX = (w - brandTotal) / 2;
+    canvas.drawImageRect(
+      iconImage,
+      iconSrc,
+      Rect.fromLTWH(iconX, y, iconSize, iconSize),
+      Paint()..filterQuality = FilterQuality.high,
+    );
+    brandTp.paint(
+      canvas,
+      Offset(iconX + iconSize + 6, y + (iconSize - brandTp.height) / 2),
+    );
+    y += iconSize + 10;
+
+    // 名称
+    nameTp.paint(canvas, Offset((w - nameTp.width) / 2, y));
+    y += nameTp.height + 4;
+
+    // 副标题（如「共 16 周」）
+    subTp.paint(canvas, Offset((w - subTp.width) / 2, y));
+    y += subTp.height + 12;
+
+    // 二维码区域留白（二维码 PNG 稍后合成）。
+    final qrX = (w - qrArea) / 2;
+    final qrY = y;
+    canvas.drawRect(
+      Rect.fromLTWH(qrX, y, qrArea, qrArea),
+      Paint()..color = Colors.white,
+    );
+    y += qrArea + 12;
+
+    // 提示文字
+    tipTp.paint(canvas, Offset((w - tipTp.width) / 2, y));
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(
+      (w * scale).toInt(),
+      (h * scale).toInt(),
+    );
+    final data = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
+    iconImage.dispose();
+    final cardPng = data?.buffer.asUint8List();
+    if (cardPng == null) return null;
+
+    // 把二维码 PNG（含静区）合成到预留区域。
+    final base = img.decodeImage(cardPng);
+    if (base == null) return null;
+    img.compositeImage(
+      base,
+      qrDecoded,
+      dstX: (qrX * scale).round(),
+      dstY: (qrY * scale).round(),
+    );
+    return img.encodePng(base);
   }
 
   /// 等比缩小图片，使长边不超过 [maxSide]。

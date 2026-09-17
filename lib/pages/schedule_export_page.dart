@@ -1,13 +1,9 @@
 import 'dart:convert';
 import 'dart:io' show Platform;
 import 'dart:typed_data';
-import 'dart:ui' as ui;
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle;
-import 'package:image/image.dart' as img;
 import 'package:share_plus/share_plus.dart';
 
 import '../models/course.dart';
@@ -146,12 +142,11 @@ class _ScheduleExportPageState extends State<ScheduleExportPage> {
 
   Future<void> _saveFile() async {
     final bytes = Uint8List.fromList(utf8.encode(_json));
-    final path = await FilePicker.platform.saveFile(
-      dialogTitle: '保存课程表',
-      fileName: _fileName,
-      type: FileType.custom,
-      allowedExtensions: ['json'],
+    final path = await saveBytesToDisk(
       bytes: bytes,
+      fileName: _fileName,
+      allowedExtensions: ['json'],
+      dialogTitle: '保存课程表',
     );
     if (path != null && mounted) {
       _showSnack('已保存到 $path');
@@ -177,176 +172,31 @@ class _ScheduleExportPageState extends State<ScheduleExportPage> {
 
   /// 离屏绘制完整分享卡片（软件图标 + 软件名 + 课程表名称 + 二维码 + 提示），
   /// 以 3 倍分辨率绘制后输出 PNG 字节，不依赖 widget 渲染。
-  /// 文字/图标用 Flutter Canvas 绘制，二维码用 image 库绘制后合成，
-  /// 保证图片中的二维码能被 zxing 解码。
+  /// 绘制逻辑在 [ScheduleShareService.renderShareCardPng]，与楼宇分享同款。
   Future<Uint8List?> _renderShareCardPng() async {
     final payload = _payload;
     if (payload == null) return null;
 
-    // 二维码用 image 库绘制（整数像素模块，zxing 易解；含白底静区）。
-    final qrPng = ScheduleShareService.renderQrPng(
-      payload,
-      size: _qrRenderSize,
-      quiet: _qrQuiet,
-      scale: _qrScale,
-    );
+    // 二维码用 image 库绘制（整数像素模块，zxing 易解；含白底静区），
+    // 与页面展示用的是同一张图。
+    final qrPng = await _renderQrPng(payload);
     if (qrPng == null) return null;
-    final qrDecoded = img.decodeImage(qrPng);
-    if (qrDecoded == null) return null;
-
-    final scale = _qrScale.toDouble();
-    const w = 380.0;
-    const pad = 16.0;
-    const iconSize = 18.0;
-
-    // 软件图标
-    final iconData = await rootBundle.load('assets/ClassPath_1024.png');
-    final iconImage = await decodeImageFromList(iconData.buffer.asUint8List());
-    final iconSrc = Rect.fromLTWH(
-      0,
-      0,
-      iconImage.width.toDouble(),
-      iconImage.height.toDouble(),
+    return ScheduleShareService.renderShareCardPng(
+      qrPng: qrPng,
+      title: widget.schedule.name,
+      subtitle: '共 ${widget.schedule.totalWeeks} 周',
+      tip: '扫一扫，导入课程表',
     );
-
-    // 预排版各段文字，拿到真实尺寸。
-    final nameTp = TextPainter(
-      text: TextSpan(
-        text: widget.schedule.name,
-        style: const TextStyle(
-          fontSize: 18,
-          fontWeight: FontWeight.w700,
-          color: Color(0xFF222222),
-          height: 1.3,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-      textAlign: TextAlign.center,
-      maxLines: 2,
-      ellipsis: '…',
-    )..layout(maxWidth: w - pad * 2);
-    final weeksTp = TextPainter(
-      text: TextSpan(
-        text: '共 ${widget.schedule.totalWeeks} 周',
-        style: const TextStyle(fontSize: 12, color: Color(0xFF888888)),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    final tipTp = TextPainter(
-      text: const TextSpan(
-        text: '扫一扫，导入课程表',
-        style: TextStyle(fontSize: 12, color: Color(0xFF666666)),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    final brandTp = TextPainter(
-      text: const TextSpan(
-        text: '课途',
-        style: TextStyle(
-          fontSize: 15,
-          fontWeight: FontWeight.w700,
-          color: Color(0xFF333333),
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-
-    // 卡片总高。
-    final qrArea = _qrRenderSize + _qrQuiet * 2;
-    final h =
-        pad +
-        iconSize +
-        10 +
-        nameTp.height +
-        4 +
-        weeksTp.height +
-        12 +
-        qrArea +
-        12 +
-        tipTp.height +
-        pad;
-
-    // 离屏绘制文字层（放大 scale 倍保证导出清晰），二维码区域留白。
-    final recorder = ui.PictureRecorder();
-    final canvas = Canvas(recorder);
-    canvas.scale(scale);
-    canvas.drawRect(Rect.fromLTWH(0, 0, w, h), Paint()..color = Colors.white);
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(0, 0, w, h),
-        const Radius.circular(16),
-      ),
-      Paint()..color = Colors.white,
-    );
-
-    // 顶部：软件图标 + 课途
-    final brandTotal = iconSize + 6 + brandTp.width;
-    var y = pad;
-    final iconX = (w - brandTotal) / 2;
-    canvas.drawImageRect(
-      iconImage,
-      iconSrc,
-      Rect.fromLTWH(iconX, y, iconSize, iconSize),
-      Paint()..filterQuality = FilterQuality.high,
-    );
-    brandTp.paint(
-      canvas,
-      Offset(iconX + iconSize + 6, y + (iconSize - brandTp.height) / 2),
-    );
-    y += iconSize + 10;
-
-    // 课程表名称
-    nameTp.paint(canvas, Offset(pad, y));
-    y += nameTp.height + 4;
-
-    // 共 N 周
-    weeksTp.paint(canvas, Offset((w - weeksTp.width) / 2, y));
-    y += weeksTp.height + 12;
-
-    // 二维码区域留白（二维码 PNG 稍后合成）。
-    final qrX = (w - qrArea) / 2;
-    final qrY = y;
-    canvas.drawRect(
-      Rect.fromLTWH(qrX, y, qrArea, qrArea),
-      Paint()..color = Colors.white,
-    );
-    y += qrArea + 12;
-
-    // 提示文字
-    tipTp.paint(canvas, Offset((w - tipTp.width) / 2, y));
-
-    final picture = recorder.endRecording();
-    final image = await picture.toImage(
-      (w * scale).toInt(),
-      (h * scale).toInt(),
-    );
-    final data = await image.toByteData(format: ui.ImageByteFormat.png);
-    image.dispose();
-    iconImage.dispose();
-    final cardPng = data?.buffer.asUint8List();
-    if (cardPng == null) return null;
-
-    // 把二维码 PNG（含静区）合成到预留区域。
-    final base = img.decodeImage(cardPng);
-    if (base == null) return null;
-    img.compositeImage(
-      base,
-      qrDecoded,
-      dstX: (qrX * scale).round(),
-      dstY: (qrY * scale).round(),
-    );
-    return img.encodePng(base);
   }
 
   Future<void> _saveImage() async {
     final bytes = await _renderShareCardPng();
     if (bytes == null) return;
-    final path = await FilePicker.platform.saveFile(
-      dialogTitle: '保存二维码图片',
-      fileName: '${widget.schedule.name}_课表二维码.png',
-      type: FileType.custom,
-      allowedExtensions: ['png'],
+    final path = await saveBytesToDisk(
       bytes: bytes,
+      fileName: '${widget.schedule.name}_课表二维码.png',
+      allowedExtensions: ['png'],
+      dialogTitle: '保存二维码图片',
     );
     if (path != null && mounted) _showSnack('已保存到 $path');
   }
