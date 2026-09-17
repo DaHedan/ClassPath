@@ -29,6 +29,10 @@ class _BuildingEditPageState extends State<BuildingEditPage> {
   late final TextEditingController _nameCtrl;
   late List<PeriodTime> _ranges;
 
+  /// 多选删除模式：长按（桌面端右键）某段时间进入。
+  bool _selecting = false;
+  final Set<PeriodTime> _selected = {};
+
   @override
   void initState() {
     super.initState();
@@ -46,6 +50,52 @@ class _BuildingEditPageState extends State<BuildingEditPage> {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(content: Text(msg)));
+
+  void _setSelecting(bool on) => setState(() {
+        _selecting = on;
+        _selected.clear();
+      });
+
+  /// 长按 / 右键某段时间：进入多选并勾上它。
+  void _enterSelecting(PeriodTime r) => setState(() {
+        _selecting = true;
+        _selected
+          ..clear()
+          ..add(r);
+      });
+
+  void _toggle(PeriodTime r) => setState(() {
+        if (!_selected.remove(r)) _selected.add(r);
+      });
+
+  Future<void> _deleteSelected() async {
+    final count = _selected.length;
+    if (count == 0) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除所选时间段'),
+        content: Text('确定删除所选的 $count 段时间吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() {
+      _ranges.removeWhere(_selected.contains);
+      _selecting = false;
+      _selected.clear();
+    });
+    _snack('已删除 $count 段时间');
+  }
 
   Future<void> _copyRangesFromOtherBuilding() async {
     final others = widget.otherBuildings.toList();
@@ -96,21 +146,44 @@ class _BuildingEditPageState extends State<BuildingEditPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final allSelected =
+        _ranges.isNotEmpty && _selected.length == _ranges.length;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('编辑楼宇'),
-        actions: [
-          TextButton.icon(
-            onPressed: _copyRangesFromOtherBuilding,
-            icon: const Icon(Icons.copy_all_outlined, size: 18),
-            label: const Text('从其他楼宇复制'),
-          ),
-          IconButton(
-            tooltip: '保存',
-            icon: const Icon(Icons.check),
-            onPressed: _save,
-          ),
-        ],
+        leading: _selecting
+            ? IconButton(
+                tooltip: '退出多选',
+                icon: const Icon(Icons.close),
+                onPressed: () => _setSelecting(false),
+              )
+            : null,
+        title: Text(_selecting ? '已选 ${_selected.length} 段' : '编辑楼宇'),
+        actions: _selecting
+            ? [
+                TextButton(
+                  onPressed: allSelected
+                      ? () => setState(_selected.clear)
+                      : () => setState(() => _selected.addAll(_ranges)),
+                  child: Text(allSelected ? '取消全选' : '全选'),
+                ),
+                IconButton(
+                  tooltip: '删除所选',
+                  icon: const Icon(Icons.delete_outline),
+                  onPressed: _selected.isEmpty ? null : _deleteSelected,
+                ),
+              ]
+            : [
+                TextButton.icon(
+                  onPressed: _copyRangesFromOtherBuilding,
+                  icon: const Icon(Icons.copy_all_outlined, size: 18),
+                  label: const Text('从其他楼宇复制'),
+                ),
+                IconButton(
+                  tooltip: '保存',
+                  icon: const Icon(Icons.check),
+                  onPressed: _save,
+                ),
+              ],
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
@@ -147,22 +220,41 @@ class _BuildingEditPageState extends State<BuildingEditPage> {
                       fontSize: 12, color: theme.colorScheme.outline)),
             ),
           for (final r in _ranges)
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text(r.display),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.edit_outlined, size: 20),
-                    onPressed: () => _editRange(r),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline,
-                        size: 20, color: Colors.red),
-                    onPressed: () => setState(() => _ranges.remove(r)),
-                  ),
-                ],
+            GestureDetector(
+              // 桌面端右键等同长按，进入多选。
+              onSecondaryTap: _selecting ? null : () => _enterSelecting(r),
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: _selecting
+                    ? Checkbox(
+                        value: _selected.contains(r),
+                        onChanged: (_) => _toggle(r),
+                        visualDensity: VisualDensity.compact,
+                        materialTapTargetSize:
+                            MaterialTapTargetSize.shrinkWrap,
+                      )
+                    : null,
+                title: Text(r.display),
+                // 多选模式下点整行即勾选，长按进入多选。
+                onTap: _selecting ? () => _toggle(r) : null,
+                onLongPress: _selecting ? null : () => _enterSelecting(r),
+                trailing: _selecting
+                    ? null
+                    : Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.edit_outlined, size: 20),
+                            onPressed: () => _editRange(r),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline,
+                                size: 20, color: Colors.red),
+                            onPressed: () =>
+                                setState(() => _ranges.remove(r)),
+                          ),
+                        ],
+                      ),
               ),
             ),
         ],

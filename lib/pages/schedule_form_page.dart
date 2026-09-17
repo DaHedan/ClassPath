@@ -33,6 +33,10 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
   /// 是否有未保存的修改：退出时（返回/手势/ESC）弹出确认。
   bool _dirty = false;
 
+  /// 楼宇多选删除模式：长按（桌面端右键）某个楼宇进入。
+  bool _selectingBuildings = false;
+  final Set<Building> _selectedBuildings = {};
+
   @override
   void initState() {
     super.initState();
@@ -138,6 +142,53 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
     }
   }
 
+  void _setBuildingSelecting(bool on) => setState(() {
+        _selectingBuildings = on;
+        _selectedBuildings.clear();
+      });
+
+  /// 长按 / 右键某个楼宇：进入多选并勾上它。
+  void _enterBuildingSelecting(Building b) => setState(() {
+        _selectingBuildings = true;
+        _selectedBuildings
+          ..clear()
+          ..add(b);
+      });
+
+  void _toggleBuilding(Building b) => setState(() {
+        if (!_selectedBuildings.remove(b)) _selectedBuildings.add(b);
+      });
+
+  Future<void> _deleteSelectedBuildings() async {
+    final count = _selectedBuildings.length;
+    if (count == 0) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除所选楼宇'),
+        content: Text('确定删除所选的 $count 栋楼宇吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() {
+      _buildings.removeWhere(_selectedBuildings.contains);
+      _selectedBuildings.clear();
+      _selectingBuildings = false;
+      _dirty = true;
+    });
+    _snack('已删除 $count 栋楼宇');
+  }
+
   void _save() async {
     final name = _nameCtrl.text.trim();
     if (name.isEmpty) {
@@ -226,6 +277,8 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final app = context.watch<AppState>();
+    final allBuildingsSelected =
+        _buildings.isNotEmpty && _selectedBuildings.length == _buildings.length;
     return PopScope(
       canPop: !_dirty,
       onPopInvokedWithResult: (didPop, result) async {
@@ -315,40 +368,63 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
           Row(
             children: [
               Text(
-                '学校楼宇',
+                _selectingBuildings
+                    ? '已选 ${_selectedBuildings.length} 栋'
+                    : '学校楼宇',
                 style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
               ),
               const Spacer(),
-              Tooltip(
-                message: '把其他课程表的全部楼宇复制过来',
-                child: TextButton.icon(
-                  onPressed: _copyBuildingsFromSchedule,
-                  icon: const Icon(Icons.copy_all_outlined, size: 18),
-                  label: const Text('复制楼宇'),
+              if (_selectingBuildings) ...[
+                TextButton(
+                  onPressed: allBuildingsSelected
+                      ? () => setState(_selectedBuildings.clear)
+                      : () => setState(
+                          () => _selectedBuildings.addAll(_buildings)),
+                  child: Text(allBuildingsSelected ? '取消全选' : '全选'),
                 ),
-              ),
-              TextButton.icon(
-                onPressed: _addBuilding,
-                icon: const Icon(Icons.add, size: 18),
-                label: const Text('添加楼宇'),
-              ),
-              PopupMenuButton<String>(
-                tooltip: '导入 / 导出楼宇',
-                icon: const Icon(Icons.more_vert, size: 20),
-                onSelected: (v) =>
-                    v == 'export' ? _exportBuildings() : _importBuildings(),
-                itemBuilder: (ctx) => [
-                  if (_buildings.isNotEmpty)
-                    const PopupMenuItem(
-                      value: 'export',
-                      child: Text('导出楼宇配置'),
-                    ),
-                  const PopupMenuItem(
-                    value: 'import',
-                    child: Text('导入楼宇配置'),
+                IconButton(
+                  tooltip: '删除所选',
+                  icon: const Icon(Icons.delete_outline),
+                  onPressed:
+                      _selectedBuildings.isEmpty ? null : _deleteSelectedBuildings,
+                ),
+                IconButton(
+                  tooltip: '退出多选',
+                  icon: const Icon(Icons.close),
+                  onPressed: () => _setBuildingSelecting(false),
+                ),
+              ] else ...[
+                Tooltip(
+                  message: '把其他课程表的全部楼宇复制过来',
+                  child: TextButton.icon(
+                    onPressed: _copyBuildingsFromSchedule,
+                    icon: const Icon(Icons.copy_all_outlined, size: 18),
+                    label: const Text('复制楼宇'),
                   ),
-                ],
-              ),
+                ),
+                TextButton.icon(
+                  onPressed: _addBuilding,
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('添加楼宇'),
+                ),
+                PopupMenuButton<String>(
+                  tooltip: '导入 / 导出楼宇',
+                  icon: const Icon(Icons.more_vert, size: 20),
+                  onSelected: (v) =>
+                      v == 'export' ? _exportBuildings() : _importBuildings(),
+                  itemBuilder: (ctx) => [
+                    if (_buildings.isNotEmpty)
+                      const PopupMenuItem(
+                        value: 'export',
+                        child: Text('导出楼宇配置'),
+                      ),
+                    const PopupMenuItem(
+                      value: 'import',
+                      child: Text('导入楼宇配置'),
+                    ),
+                  ],
+                ),
+              ],
             ],
           ),
           if (_buildings.isEmpty)
@@ -365,27 +441,50 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
           for (final b in _buildings)
             Card(
               margin: const EdgeInsets.only(bottom: 8),
-              child: ListTile(
-                title: Text(
-                  b.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                subtitle: Text(
-                  b.periodTimes.isEmpty
-                      ? '未设置节次时间段'
-                      : '${b.periodTimes.length}个时间段 · ${b.periodTimes.first.display}',
-                  style: const TextStyle(fontSize: 11),
-                ),
-                onTap: () => _editBuilding(b),
-                trailing: TextButton(
-                  style: TextButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: GestureDetector(
+                // 桌面端右键等同长按，进入多选。
+                onSecondaryTap: _selectingBuildings
+                    ? null
+                    : () => _enterBuildingSelecting(b),
+                child: ListTile(
+                  leading: _selectingBuildings
+                      ? Checkbox(
+                          value: _selectedBuildings.contains(b),
+                          onChanged: (_) => _toggleBuilding(b),
+                          visualDensity: VisualDensity.compact,
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                        )
+                      : null,
+                  title: Text(
+                    b.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  onPressed: () => _copyRangesFromBuilding(b),
-                  child: const Text('从其他楼宇复制',
-                      style: TextStyle(fontSize: 12)),
+                  subtitle: Text(
+                    b.periodTimes.isEmpty
+                        ? '未设置节次时间段'
+                        : '${b.periodTimes.length}个时间段 · ${b.periodTimes.first.display}',
+                    style: const TextStyle(fontSize: 11),
+                  ),
+                  onTap: _selectingBuildings
+                      ? () => _toggleBuilding(b)
+                      : () => _editBuilding(b),
+                  onLongPress: _selectingBuildings
+                      ? null
+                      : () => _enterBuildingSelecting(b),
+                  trailing: _selectingBuildings
+                      ? null
+                      : TextButton(
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            padding:
+                                const EdgeInsets.symmetric(horizontal: 8),
+                          ),
+                          onPressed: () => _copyRangesFromBuilding(b),
+                          child: const Text('从其他楼宇复制',
+                              style: TextStyle(fontSize: 12)),
+                        ),
                 ),
               ),
             ),
