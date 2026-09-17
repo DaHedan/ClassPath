@@ -147,6 +147,18 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
         _selectedBuildings.clear();
       });
 
+  /// 调整楼宇顺序（ReorderableListView 传入的 oldIndex/newIndex）。
+  void _reorderBuildings(int oldIndex, int newIndex) {
+    if (newIndex > oldIndex) newIndex--;
+    if (oldIndex < 0 || oldIndex >= _buildings.length) return;
+    if (newIndex < 0 || newIndex >= _buildings.length) return;
+    setState(() {
+      final b = _buildings.removeAt(oldIndex);
+      _buildings.insert(newIndex, b);
+      _dirty = true;
+    });
+  }
+
   /// 长按 / 右键某个楼宇：进入多选并勾上它。
   void _enterBuildingSelecting(Building b) => setState(() {
         _selectingBuildings = true;
@@ -437,56 +449,79 @@ class _ScheduleFormPageState extends State<ScheduleFormPage> {
                   color: theme.colorScheme.outline,
                 ),
               ),
-            ),
-          for (final b in _buildings)
-            Card(
-              margin: const EdgeInsets.only(bottom: 8),
-              child: GestureDetector(
-                // 桌面端右键等同长按，进入多选。
-                onSecondaryTap: _selectingBuildings
-                    ? null
-                    : () => _enterBuildingSelecting(b),
-                child: ListTile(
-                  leading: _selectingBuildings
-                      ? Checkbox(
-                          value: _selectedBuildings.contains(b),
-                          onChanged: (_) => _toggleBuilding(b),
-                          visualDensity: VisualDensity.compact,
-                          materialTapTargetSize:
-                              MaterialTapTargetSize.shrinkWrap,
-                        )
-                      : null,
-                  title: Text(
-                    b.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+            )
+          else
+            // 拖动拇指可调整楼宇顺序（多选时拇指让位给勾选框）。
+            ReorderableListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              buildDefaultDragHandles: false,
+              // 同其它列表：不要代理层的底色，只补一个透明 Material。
+              proxyDecorator: (child, index, animation) =>
+                  Material(type: MaterialType.transparency, child: child),
+              itemCount: _buildings.length,
+              onReorder: _reorderBuildings,
+              itemBuilder: (context, index) {
+                final b = _buildings[index];
+                return Card(
+                  key: ObjectKey(b),
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: GestureDetector(
+                    // 桌面端右键等同长按，进入多选。
+                    onSecondaryTap: _selectingBuildings
+                        ? null
+                        : () => _enterBuildingSelecting(b),
+                    child: ListTile(
+                      leading: _selectingBuildings
+                          ? Checkbox(
+                              value: _selectedBuildings.contains(b),
+                              onChanged: (_) => _toggleBuilding(b),
+                              visualDensity: VisualDensity.compact,
+                              materialTapTargetSize:
+                                  MaterialTapTargetSize.shrinkWrap,
+                            )
+                          : ReorderableDragStartListener(
+                              index: index,
+                              child: const Icon(
+                                // drag_indicator 是竖排圆点，比横排的 drag_handle 窄。
+                                Icons.drag_indicator,
+                                size: 20,
+                                color: Colors.grey,
+                              ),
+                            ),
+                      title: Text(
+                        b.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: Text(
+                        b.periodTimes.isEmpty
+                            ? '未设置节次时间段'
+                            : '${b.periodTimes.length}个时间段 · ${b.periodTimes.first.display}',
+                        style: const TextStyle(fontSize: 11),
+                      ),
+                      onTap: _selectingBuildings
+                          ? () => _toggleBuilding(b)
+                          : () => _editBuilding(b),
+                      onLongPress: _selectingBuildings
+                          ? null
+                          : () => _enterBuildingSelecting(b),
+                      trailing: _selectingBuildings
+                          ? null
+                          : TextButton(
+                              style: TextButton.styleFrom(
+                                visualDensity: VisualDensity.compact,
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8),
+                              ),
+                              onPressed: () => _copyRangesFromBuilding(b),
+                              child: const Text('从其他楼宇复制',
+                                  style: TextStyle(fontSize: 12)),
+                            ),
+                    ),
                   ),
-                  subtitle: Text(
-                    b.periodTimes.isEmpty
-                        ? '未设置节次时间段'
-                        : '${b.periodTimes.length}个时间段 · ${b.periodTimes.first.display}',
-                    style: const TextStyle(fontSize: 11),
-                  ),
-                  onTap: _selectingBuildings
-                      ? () => _toggleBuilding(b)
-                      : () => _editBuilding(b),
-                  onLongPress: _selectingBuildings
-                      ? null
-                      : () => _enterBuildingSelecting(b),
-                  trailing: _selectingBuildings
-                      ? null
-                      : TextButton(
-                          style: TextButton.styleFrom(
-                            visualDensity: VisualDensity.compact,
-                            padding:
-                                const EdgeInsets.symmetric(horizontal: 8),
-                          ),
-                          onPressed: () => _copyRangesFromBuilding(b),
-                          child: const Text('从其他楼宇复制',
-                              style: TextStyle(fontSize: 12)),
-                        ),
-                ),
-              ),
+                );
+              },
             ),
           const Divider(height: 32),
           Text(
