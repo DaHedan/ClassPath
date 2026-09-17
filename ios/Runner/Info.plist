@@ -28,6 +28,10 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>需要访问相机以扫描课程表分享二维码</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>需要保存课表二维码图片到相册</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>需要访问相册以保存课表二维码图片</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

@@ -5,24 +5,34 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:gal/gal.dart';
+import 'package:share_plus/share_plus.dart';
 
 /// 与 Android 原生端（MainActivity）的分享通道：
 /// 把内存文件直接分享给指定应用（微信 / QQ）。
 const _channel = MethodChannel('classpath/share');
 
-Future<bool> _shareFileTo(
+/// 调起分享面板把内存文件发出去。
+///
+/// [toSystem] 为 true 时走系统（Android 端走原生 ACTION_SEND，让 ROM 用自己的
+/// 分享面板；share_plus 内部用 createChooser，会得到 AOSP 那个传统方形图标列表）。
+Future<bool> _shareFile(
   String pkg,
   Uint8List bytes,
   String mime,
-  String name,
-) async {
+  String name, {
+  required bool toSystem,
+}) async {
   try {
-    return await _channel.invokeMethod<bool>('shareFileTo', {
-          'package': pkg,
-          'mimeType': mime,
-          'fileName': name,
-          'bytesBase64': base64Encode(bytes),
-        }) ??
+    return await _channel.invokeMethod<bool>(
+          toSystem ? 'shareToSystem' : 'shareFileTo',
+          {
+            if (!toSystem) 'package': pkg,
+            'mimeType': mime,
+            'fileName': name,
+            'bytesBase64': base64Encode(bytes),
+          },
+        ) ??
         false;
   } catch (_) {
     return false;
@@ -56,6 +66,65 @@ Future<String?> saveBytesToDisk({
   return path;
 }
 
+/// 保存图片：手机端直接写进系统相册（Android MediaStore / iOS 照片），
+/// 桌面端仍弹「另存为」对话框（[saveBytesToDisk]）。
+///
+/// 返回给用户看的提示文字；用户取消保存时返回空串。
+Future<String> saveImageBytes({
+  required Uint8List bytes,
+  required String fileName,
+}) async {
+  final isMobile = !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+  if (isMobile) {
+    // gal 要求名字不带扩展名。
+    final name = fileName.toLowerCase().endsWith('.png')
+        ? fileName.substring(0, fileName.length - 4)
+        : fileName;
+    try {
+      if (!await Gal.hasAccess()) await Gal.requestAccess();
+      await Gal.putImageBytes(bytes, name: name);
+      return '已保存到相册';
+    } on GalException catch (e) {
+      return e.type == GalExceptionType.accessDenied
+          ? '没有相册权限，请在系统设置里允许后重试'
+          : '保存到相册失败';
+    }
+  }
+  final path = await saveBytesToDisk(
+    bytes: bytes,
+    fileName: fileName,
+    allowedExtensions: ['png'],
+    dialogTitle: '保存$fileName',
+  );
+  return path == null ? '' : '已保存到 $path';
+}
+
+/// 调起**系统分享面板**发送内存文件（分享面板里的「更多应用」走这里）。
+///
+/// Android 端优先用原生 `ACTION_SEND`（交给 ROM 自己的分享面板渲染，
+/// 华为/ HarmonyOS 上就是那种圆角图标 + 分页的样式）；原生通道不可用时
+/// 退回 share_plus（它内部用 createChooser，样式是 AOSP 传统列表）。
+Future<void> shareBytesToSystem({
+  required Uint8List bytes,
+  required String fileName,
+  required String mimeType,
+  String? text,
+  Rect? sharePositionOrigin,
+}) async {
+  final isAndroid = !kIsWeb && Platform.isAndroid;
+  if (isAndroid &&
+      await _shareFile('', bytes, mimeType, fileName, toSystem: true)) {
+    return;
+  }
+  await SharePlus.instance.share(
+    ShareParams(
+      text: text,
+      files: [XFile.fromData(bytes, mimeType: mimeType, name: fileName)],
+      sharePositionOrigin: sharePositionOrigin,
+    ),
+  );
+}
+
 /// 底部弹出式分享面板（国产 App 常见样式）。
 ///
 /// - 第一行：微信、QQ 直接调起对应应用分享当前内容；「更多应用」走系统分享面板；
@@ -85,7 +154,8 @@ Future<void> showShareSheet(
   /// 调起指定应用；未安装或失败时提示。
   Future<void> shareTo(String label, String pkg) async {
     Navigator.of(context).pop();
-    final ok = await _shareFileTo(pkg, bytes, mimeType, fileName);
+    final ok =
+        await _shareFile(pkg, bytes, mimeType, fileName, toSystem: false);
     if (!ok) toast('未安装 $label，或分享失败');
   }
 

@@ -9,10 +9,15 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <!-- 精确闹钟：Android 13+ 自动授予，确保提醒准时触发 -->
     <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
+    <!-- 保存二维码图片到相册：Android 10（API 29）及以下需要写外部存储，
+         11+ 走 MediaStore 免权限（见 gal 插件说明） -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29"/>
     <application
         android:label="课途"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:requestLegacyExternalStorage="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"

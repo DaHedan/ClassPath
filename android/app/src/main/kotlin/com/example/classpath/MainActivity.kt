@@ -1,5 +1,6 @@
 package com.dahedan.classpath
 
+import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
@@ -44,6 +45,19 @@ class MainActivity : FlutterActivity() {
                     "openNotificationSettings" -> {
                         openNotificationSettings()
                         result.success(true)
+                    }
+                    // 调起系统分享面板（不带 createChooser）：交回 ROM 自己的
+                    // 分享面板渲染图标/分组，避免出现 AOSP 那个传统方形图标列表。
+                    "shareToSystem" -> {
+                        val mime = call.argument<String>("mimeType")
+                            ?: "application/octet-stream"
+                        val fileName = call.argument<String>("fileName")
+                        val bytesBase64 = call.argument<String>("bytesBase64")
+                        if (fileName == null || bytesBase64 == null) {
+                            result.error("bad_args", "missing arguments", null)
+                            return@setMethodCallHandler
+                        }
+                        result.success(shareToSystem(mime, fileName, bytesBase64))
                     }
                     else -> result.notImplemented()
                 }
@@ -101,6 +115,39 @@ class MainActivity : FlutterActivity() {
                 putExtra(Intent.EXTRA_STREAM, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 setPackage(packageName)
+            }
+            startActivity(intent)
+            true
+        } catch (_: Exception) {
+            false
+        }
+
+    /// 调起系统分享面板。
+    ///
+    /// 注意：这里**不能**用 Intent.createChooser —— 那会让系统弹出 AOSP 自带的
+    /// 传统选择器（方形图标列表）；直接 startActivity(ACTION_SEND) 才会交回
+    /// 各 ROM 自己的分享面板（如华为的圆角图标 + 分页样式）。
+    /// clipData 保证被选中的应用拿到读取权限（Android 11+ 推荐做法）。
+    private fun shareToSystem(
+        mimeType: String,
+        fileName: String,
+        bytesBase64: String,
+    ): Boolean =
+        try {
+            val bytes = Base64.decode(bytesBase64, Base64.DEFAULT)
+            val tmp = File(cacheDir, "share_$fileName")
+            tmp.writeBytes(bytes)
+            val uri =
+                FileProvider.getUriForFile(
+                    this,
+                    "${applicationContext.packageName}.fileprovider",
+                    tmp,
+                )
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = mimeType
+                putExtra(Intent.EXTRA_STREAM, uri)
+                clipData = ClipData.newRawUri(null, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             startActivity(intent)
             true

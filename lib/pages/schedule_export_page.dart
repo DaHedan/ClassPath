@@ -4,7 +4,6 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../models/course.dart';
 import '../models/schedule.dart';
@@ -157,16 +156,13 @@ class _ScheduleExportPageState extends State<ScheduleExportPage> {
   Future<void> _shareJson() async {
     final bytes = Uint8List.fromList(utf8.encode(_json));
     final box = context.findRenderObject() as RenderBox?;
-    await SharePlus.instance.share(
-      ShareParams(
-        text: '课途课程表：${widget.schedule.name}',
-        files: [
-          XFile.fromData(bytes, mimeType: 'application/json', name: _fileName),
-        ],
-        sharePositionOrigin: box == null
-            ? null
-            : box.localToGlobal(Offset.zero) & box.size,
-      ),
+    await shareBytesToSystem(
+      bytes: bytes,
+      fileName: _fileName,
+      mimeType: 'application/json',
+      text: '课途课程表：${widget.schedule.name}',
+      sharePositionOrigin:
+          box == null ? null : box.localToGlobal(Offset.zero) & box.size,
     );
   }
 
@@ -191,14 +187,13 @@ class _ScheduleExportPageState extends State<ScheduleExportPage> {
 
   Future<void> _saveImage() async {
     final bytes = await _renderShareCardPng();
-    if (bytes == null) return;
-    final path = await saveBytesToDisk(
+    if (bytes == null || !mounted) return;
+    // 手机端存进相册，桌面端另存为。
+    final msg = await saveImageBytes(
       bytes: bytes,
       fileName: '${widget.schedule.name}_课表二维码.png',
-      allowedExtensions: ['png'],
-      dialogTitle: '保存二维码图片',
     );
-    if (path != null && mounted) _showSnack('已保存到 $path');
+    if (msg.isNotEmpty && mounted) _showSnack(msg);
   }
 
   /// 手机端：弹出分享面板分享课程表数据文件（json）。
@@ -236,20 +231,13 @@ class _ScheduleExportPageState extends State<ScheduleExportPage> {
     final bytes = await _renderShareCardPng();
     if (bytes == null) return;
     final box = context.findRenderObject() as RenderBox?;
-    await SharePlus.instance.share(
-      ShareParams(
-        text: '课途课程表二维码：${widget.schedule.name}',
-        files: [
-          XFile.fromData(
-            bytes,
-            mimeType: 'image/png',
-            name: '${widget.schedule.name}_课表二维码.png',
-          ),
-        ],
-        sharePositionOrigin: box == null
-            ? null
-            : box.localToGlobal(Offset.zero) & box.size,
-      ),
+    await shareBytesToSystem(
+      bytes: bytes,
+      fileName: '${widget.schedule.name}_课表二维码.png',
+      mimeType: 'image/png',
+      text: '课途课程表二维码：${widget.schedule.name}',
+      sharePositionOrigin:
+          box == null ? null : box.localToGlobal(Offset.zero) & box.size,
     );
   }
 

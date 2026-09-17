@@ -5,7 +5,6 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../models/schedule.dart';
 import '../services/schedule_share_service.dart';
@@ -164,8 +163,15 @@ class _BuildingsSharePageState extends State<BuildingsSharePage> {
         ) ??
         png;
     if (!mounted) return;
+
+    // 手机端存进相册，桌面端另存为。
+    Future<void> saveImage() async {
+      final msg = await saveImageBytes(bytes: card, fileName: _qrName);
+      if (msg.isNotEmpty && mounted) _snack(msg);
+    }
+
     if (!_isMobile) {
-      await _saveToDisk(card, _qrName, 'png');
+      await saveImage();
       return;
     }
     await showShareSheet(
@@ -176,7 +182,7 @@ class _BuildingsSharePageState extends State<BuildingsSharePage> {
       fileName: _qrName,
       mimeType: 'image/png',
       onMore: () => _shareViaSystem(card, 'image/png', _qrName),
-      onSave: () => _saveToDisk(card, _qrName, 'png'),
+      onSave: saveImage,
     );
   }
 
@@ -187,13 +193,13 @@ class _BuildingsSharePageState extends State<BuildingsSharePage> {
     String name,
   ) async {
     final box = context.findRenderObject() as RenderBox?;
-    await SharePlus.instance.share(
-      ShareParams(
-        text: '课途 · 楼宇配置',
-        files: [XFile.fromData(bytes, mimeType: mime, name: name)],
-        sharePositionOrigin:
-            box == null ? null : box.localToGlobal(Offset.zero) & box.size,
-      ),
+    await shareBytesToSystem(
+      bytes: bytes,
+      fileName: name,
+      mimeType: mime,
+      text: '课途 · 楼宇配置',
+      sharePositionOrigin:
+          box == null ? null : box.localToGlobal(Offset.zero) & box.size,
     );
   }
 
